@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
 from openmic.storage import save_transcript
+from openmic.rag import TranscriptRAG
 
 load_dotenv()
 
@@ -105,6 +106,7 @@ class OpenMicApp(App):
         self.batch_transcriber = BatchTranscriber()
         self._current_wav_path: Path | None = None
         self._latest_transcript_path: Path | None = None
+        self.rag = TranscriptRAG()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -195,6 +197,18 @@ class OpenMicApp(App):
         except OSError:
             pass
 
+    async def _run_query(self, question: str) -> None:
+        """Run a RAG query against the transcripts."""
+        self.transcript_pane.set_text(f"Querying: {question}\n\nSearching transcripts...\n")
+        try:
+            answer = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.rag.query(question),
+            )
+            self.transcript_pane.set_text(f"Q: {question}\n\nA: {answer}\n")
+        except Exception as e:
+            self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
         command = event.value.strip()
@@ -207,7 +221,11 @@ class OpenMicApp(App):
             if self.status_bar.recording:
                 await self._stop_recording()
         elif command.startswith("/query"):
-            self.transcript_pane.append_text("\n[Query feature not yet implemented]\n")
+            query_text = command[6:].strip()
+            if query_text:
+                await self._run_query(query_text)
+            else:
+                self.transcript_pane.append_text("\nUsage: /query <your question>\n")
         elif command == "/notes":
             self.transcript_pane.append_text("\n[Notes feature not yet implemented]\n")
         elif command:

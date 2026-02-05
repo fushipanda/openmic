@@ -71,7 +71,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ### Phase 4 — RAG querying
 - [x] Wire up LangChain: document loader for markdown files in `transcripts/`, local vector store (FAISS or ChromaDB), embeddings via the configured provider
-- [ ] Implement `/query` command: user types a question in the command input, relevant chunks are retrieved, LLM generates an answer, result displayed in the main pane
+- [x] Implement `/query` command: user types a question in the command input, relevant chunks are retrieved, LLM generates an answer, result displayed in the main pane
 
 ### Phase 5 — Meeting notes
 - [ ] Implement `/notes` command: LangChain chain that takes the most recent session transcript and produces structured notes (agenda, key points, decisions, action items)
