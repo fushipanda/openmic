@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
+from openmic.storage import save_transcript
 
 load_dotenv()
 
@@ -103,6 +104,7 @@ class OpenMicApp(App):
         self._live_text = ""
         self.batch_transcriber = BatchTranscriber()
         self._current_wav_path: Path | None = None
+        self._latest_transcript_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -167,14 +169,31 @@ class OpenMicApp(App):
                 None,
                 lambda: self.batch_transcriber.transcribe_file(str(wav_path)),
             )
-            self._display_diarized_transcript(result)
+            segments = BatchTranscriber.parse_diarized_result(result)
+            self._latest_transcript_path = save_transcript(segments)
+            self._display_diarized_transcript(segments)
+            self._cleanup_wav(wav_path)
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError during transcription: {e}\n")
 
-    def _display_diarized_transcript(self, result: dict) -> None:
+    def _display_diarized_transcript(self, segments: list[dict]) -> None:
         """Display diarized transcript in the pane."""
-        # Will be implemented in next task
-        pass
+        lines = []
+        for segment in segments:
+            speaker = segment.get("speaker", "Speaker")
+            text = segment.get("text", "")
+            lines.append(f"[{speaker}]: {text}\n")
+
+        self.transcript_pane.set_text("\n".join(lines))
+        if self._latest_transcript_path:
+            self.transcript_pane.append_text(f"\n\nSaved to: {self._latest_transcript_path}\n")
+
+    def _cleanup_wav(self, wav_path: Path) -> None:
+        """Delete temporary WAV file after successful transcription."""
+        try:
+            wav_path.unlink()
+        except OSError:
+            pass
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""

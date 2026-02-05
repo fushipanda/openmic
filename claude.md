@@ -65,7 +65,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 ### Phase 3 — Batch transcription and saving
 - [x] On stop: upload the recorded `.wav` to Scribe batch API with `diarize=True` and `num_speakers` defaulting to a reasonable max
 - [x] Parse the batch response into speaker-labeled segments
-- [ ] Save the diarized transcript to `transcripts/` as a markdown file named `YYYY-MM-DD_HH-MM.md`
+- [x] Save the diarized transcript to `transcripts/` as a markdown file named `YYYY-MM-DD_HH-MM.md`
 - [ ] Replace the live preview in the TUI with the final diarized transcript once batch completes
 - [ ] Delete the temporary `.wav` file after successful batch transcription
 
