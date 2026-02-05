@@ -59,7 +59,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Mic capture with sounddevice: record audio continuously to a local `.wav` while session is active
 
 ### Phase 2 — Realtime transcription (live preview)
-- [ ] Connect to Scribe realtime WebSocket: stream mic audio chunks as `input_audio_chunk` messages
+- [x] Connect to Scribe realtime WebSocket: stream mic audio chunks as `input_audio_chunk` messages
 - [ ] Receive `partial_transcript` and `committed_transcript` events and display them in the main pane as words arrive
 
 ### Phase 3 — Batch transcription and saving
