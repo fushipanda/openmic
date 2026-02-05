@@ -80,7 +80,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ### Phase 6 — Polish
 - [x] Add optional session naming: prompt at start, used in the transcript filename
-- [ ] Update README with setup, `.env` config, and command reference
+- [x] Update README with setup, `.env` config, and command reference
 
 ---
 
