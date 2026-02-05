@@ -1,9 +1,13 @@
 """OpenMic TUI application."""
 
+from pathlib import Path
+
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical
+from textual.containers import Container
 from textual.widgets import Footer, Header, Input, Static
 from textual.binding import Binding
+
+from openmic.audio import AudioRecorder
 
 
 class StatusBar(Static):
@@ -82,6 +86,7 @@ class OpenMicApp(App):
         self.status_bar = StatusBar()
         self.transcript_pane = TranscriptPane()
         self.command_input = CommandInput()
+        self.audio_recorder = AudioRecorder(output_dir=Path("."))
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -92,12 +97,25 @@ class OpenMicApp(App):
 
     def action_toggle_recording(self) -> None:
         """Toggle recording state."""
-        new_state = not self.status_bar.recording
-        self.status_bar.set_recording(new_state)
-        if new_state:
-            self.status_bar.add_class("recording")
+        if self.status_bar.recording:
+            self._stop_recording()
         else:
-            self.status_bar.remove_class("recording")
+            self._start_recording()
+
+    def _start_recording(self) -> None:
+        """Start audio recording."""
+        wav_path = self.audio_recorder.start()
+        self.status_bar.set_recording(True)
+        self.status_bar.add_class("recording")
+        self.transcript_pane.set_text(f"Recording started... ({wav_path.name})\n")
+
+    def _stop_recording(self) -> None:
+        """Stop audio recording."""
+        wav_path = self.audio_recorder.stop()
+        self.status_bar.set_recording(False)
+        self.status_bar.remove_class("recording")
+        if wav_path:
+            self.transcript_pane.append_text(f"\nRecording stopped. Saved to {wav_path.name}\n")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
@@ -105,13 +123,11 @@ class OpenMicApp(App):
         self.command_input.value = ""
 
         if command == "/start":
-            self.action_toggle_recording()
-            if self.status_bar.recording:
-                self.transcript_pane.set_text("Recording started...\n")
+            if not self.status_bar.recording:
+                self._start_recording()
         elif command == "/stop":
             if self.status_bar.recording:
-                self.action_toggle_recording()
-                self.transcript_pane.append_text("\nRecording stopped.\n")
+                self._stop_recording()
         elif command.startswith("/query"):
             self.transcript_pane.append_text("\n[Query feature not yet implemented]\n")
         elif command == "/notes":

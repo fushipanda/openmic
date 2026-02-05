@@ -56,7 +56,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 ### Phase 1 — Project foundation
 - [x] Init project: `pyproject.toml`, `.gitignore`, `.env.example` (template with key names, no values)
 - [x] Textual app skeleton: status bar (idle / recording), main transcript pane, command input at the bottom
-- [ ] Mic capture with sounddevice: record audio continuously to a local `.wav` while session is active
+- [x] Mic capture with sounddevice: record audio continuously to a local `.wav` while session is active
 
 ### Phase 2 — Realtime transcription (live preview)
 - [ ] Connect to Scribe realtime WebSocket: stream mic audio chunks as `input_audio_chunk` messages
