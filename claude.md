@@ -74,9 +74,9 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Implement `/query` command: user types a question in the command input, relevant chunks are retrieved, LLM generates an answer, result displayed in the main pane
 
 ### Phase 5 — Meeting notes
-- [ ] Implement `/notes` command: LangChain chain that takes the most recent session transcript and produces structured notes (agenda, key points, decisions, action items)
-- [ ] Save generated notes to `notes/` alongside the source transcript
-- [ ] Display the generated notes in the main pane
+- [x] Implement `/notes` command: LangChain chain that takes the most recent session transcript and produces structured notes (agenda, key points, decisions, action items)
+- [x] Save generated notes to `notes/` alongside the source transcript
+- [x] Display the generated notes in the main pane
 
 ### Phase 6 — Polish
 - [ ] Add optional session naming: prompt at start, used in the transcript filename

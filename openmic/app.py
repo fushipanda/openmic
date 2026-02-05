@@ -14,6 +14,7 @@ from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
 from openmic.storage import save_transcript
 from openmic.rag import TranscriptRAG
+from openmic.notes import generate_notes_for_latest
 
 load_dotenv()
 
@@ -209,6 +210,22 @@ class OpenMicApp(App):
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
 
+    async def _generate_notes(self) -> None:
+        """Generate meeting notes from the latest transcript."""
+        self.transcript_pane.set_text("Generating meeting notes...\n")
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                generate_notes_for_latest,
+            )
+            if result is None:
+                self.transcript_pane.set_text("No transcripts available to generate notes from.\n")
+            else:
+                notes_content, notes_path = result
+                self.transcript_pane.set_text(f"{notes_content}\n\nSaved to: {notes_path}\n")
+        except Exception as e:
+            self.transcript_pane.append_text(f"\n\nError generating notes: {e}\n")
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
         command = event.value.strip()
@@ -227,7 +244,7 @@ class OpenMicApp(App):
             else:
                 self.transcript_pane.append_text("\nUsage: /query <your question>\n")
         elif command == "/notes":
-            self.transcript_pane.append_text("\n[Notes feature not yet implemented]\n")
+            await self._generate_notes()
         elif command:
             self.transcript_pane.append_text(f"\nUnknown command: {command}\n")
 
