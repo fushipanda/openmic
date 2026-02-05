@@ -1,5 +1,6 @@
 """OpenMic TUI application."""
 
+import asyncio
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -10,7 +11,7 @@ from textual.binding import Binding
 from dotenv import load_dotenv
 
 from openmic.audio import AudioRecorder
-from openmic.transcribe import RealtimeTranscriber
+from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
 
 load_dotenv()
 
@@ -100,6 +101,8 @@ class OpenMicApp(App):
             on_committed=self._on_committed_transcript,
         )
         self._live_text = ""
+        self.batch_transcriber = BatchTranscriber()
+        self._current_wav_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -118,11 +121,11 @@ class OpenMicApp(App):
     async def _start_recording(self) -> None:
         """Start audio recording and transcription."""
         self._live_text = ""
-        wav_path = self.audio_recorder.start()
+        self._current_wav_path = self.audio_recorder.start()
         await self.transcriber.connect()
         self.status_bar.set_recording(True)
         self.status_bar.add_class("recording")
-        self.transcript_pane.set_text(f"Recording started... ({wav_path.name})\n\n")
+        self.transcript_pane.set_text(f"Recording started... ({self._current_wav_path.name})\n\n")
 
     async def _stop_recording(self) -> None:
         """Stop audio recording and transcription."""
@@ -131,7 +134,9 @@ class OpenMicApp(App):
         self.status_bar.set_recording(False)
         self.status_bar.remove_class("recording")
         if wav_path:
-            self.transcript_pane.append_text(f"\n\nRecording stopped. Saved to {wav_path.name}\n")
+            self.transcript_pane.append_text(f"\n\nRecording stopped. Processing with diarization...\n")
+            self._current_wav_path = wav_path
+            await self._run_batch_transcription(wav_path)
 
     def _on_audio_chunk(self, audio_bytes: bytes) -> None:
         """Handle audio chunk from recorder."""
@@ -154,6 +159,22 @@ class OpenMicApp(App):
         """Update transcript pane with committed text."""
         self._live_text += text + " "
         self.transcript_pane.set_text(self._live_text)
+
+    async def _run_batch_transcription(self, wav_path: Path) -> None:
+        """Run batch transcription with diarization."""
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.batch_transcriber.transcribe_file(str(wav_path)),
+            )
+            self._display_diarized_transcript(result)
+        except Exception as e:
+            self.transcript_pane.append_text(f"\n\nError during transcription: {e}\n")
+
+    def _display_diarized_transcript(self, result: dict) -> None:
+        """Display diarized transcript in the pane."""
+        # Will be implemented in next task
+        pass
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""

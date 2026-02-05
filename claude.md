@@ -63,7 +63,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Receive `partial_transcript` and `committed_transcript` events and display them in the main pane as words arrive
 
 ### Phase 3 — Batch transcription and saving
-- [ ] On stop: upload the recorded `.wav` to Scribe batch API with `diarize=True` and `num_speakers` defaulting to a reasonable max
+- [x] On stop: upload the recorded `.wav` to Scribe batch API with `diarize=True` and `num_speakers` defaulting to a reasonable max
 - [ ] Parse the batch response into speaker-labeled segments
 - [ ] Save the diarized transcript to `transcripts/` as a markdown file named `YYYY-MM-DD_HH-MM.md`
 - [ ] Replace the live preview in the TUI with the final diarized transcript once batch completes
