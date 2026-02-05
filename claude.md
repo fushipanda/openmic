@@ -70,7 +70,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Delete the temporary `.wav` file after successful batch transcription
 
 ### Phase 4 — RAG querying
-- [ ] Wire up LangChain: document loader for markdown files in `transcripts/`, local vector store (FAISS or ChromaDB), embeddings via the configured provider
+- [x] Wire up LangChain: document loader for markdown files in `transcripts/`, local vector store (FAISS or ChromaDB), embeddings via the configured provider
 - [ ] Implement `/query` command: user types a question in the command input, relevant chunks are retrieved, LLM generates an answer, result displayed in the main pane
 
 ### Phase 5 — Meeting notes
