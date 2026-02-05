@@ -108,6 +108,7 @@ class OpenMicApp(App):
         self._current_wav_path: Path | None = None
         self._latest_transcript_path: Path | None = None
         self.rag = TranscriptRAG()
+        self._session_name: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -130,7 +131,8 @@ class OpenMicApp(App):
         await self.transcriber.connect()
         self.status_bar.set_recording(True)
         self.status_bar.add_class("recording")
-        self.transcript_pane.set_text(f"Recording started... ({self._current_wav_path.name})\n\n")
+        session_info = f" [{self._session_name}]" if self._session_name else ""
+        self.transcript_pane.set_text(f"Recording started...{session_info} ({self._current_wav_path.name})\n\n")
 
     async def _stop_recording(self) -> None:
         """Stop audio recording and transcription."""
@@ -173,7 +175,7 @@ class OpenMicApp(App):
                 lambda: self.batch_transcriber.transcribe_file(str(wav_path)),
             )
             segments = BatchTranscriber.parse_diarized_result(result)
-            self._latest_transcript_path = save_transcript(segments)
+            self._latest_transcript_path = save_transcript(segments, self._session_name)
             self._display_diarized_transcript(segments)
             self._cleanup_wav(wav_path)
         except Exception as e:
@@ -233,6 +235,11 @@ class OpenMicApp(App):
 
         if command == "/start":
             if not self.status_bar.recording:
+                self._session_name = None
+                await self._start_recording()
+        elif command.startswith("/start "):
+            if not self.status_bar.recording:
+                self._session_name = command[7:].strip().replace(" ", "_")
                 await self._start_recording()
         elif command == "/stop":
             if self.status_bar.recording:

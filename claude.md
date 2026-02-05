@@ -79,7 +79,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Display the generated notes in the main pane
 
 ### Phase 6 — Polish
-- [ ] Add optional session naming: prompt at start, used in the transcript filename
+- [x] Add optional session naming: prompt at start, used in the transcript filename
 - [ ] Update README with setup, `.env` config, and command reference
 
 ---
