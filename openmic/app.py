@@ -7,7 +7,12 @@ from textual.containers import Container
 from textual.widgets import Footer, Header, Input, Static
 from textual.binding import Binding
 
+from dotenv import load_dotenv
+
 from openmic.audio import AudioRecorder
+from openmic.transcribe import RealtimeTranscriber
+
+load_dotenv()
 
 
 class StatusBar(Static):
@@ -86,7 +91,15 @@ class OpenMicApp(App):
         self.status_bar = StatusBar()
         self.transcript_pane = TranscriptPane()
         self.command_input = CommandInput()
-        self.audio_recorder = AudioRecorder(output_dir=Path("."))
+        self.audio_recorder = AudioRecorder(
+            output_dir=Path("."),
+            on_audio_chunk=self._on_audio_chunk,
+        )
+        self.transcriber = RealtimeTranscriber(
+            on_partial=self._on_partial_transcript,
+            on_committed=self._on_committed_transcript,
+        )
+        self._live_text = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -95,27 +108,52 @@ class OpenMicApp(App):
         yield self.command_input
         yield Footer()
 
-    def action_toggle_recording(self) -> None:
+    async def action_toggle_recording(self) -> None:
         """Toggle recording state."""
         if self.status_bar.recording:
-            self._stop_recording()
+            await self._stop_recording()
         else:
-            self._start_recording()
+            await self._start_recording()
 
-    def _start_recording(self) -> None:
-        """Start audio recording."""
+    async def _start_recording(self) -> None:
+        """Start audio recording and transcription."""
+        self._live_text = ""
         wav_path = self.audio_recorder.start()
+        await self.transcriber.connect()
         self.status_bar.set_recording(True)
         self.status_bar.add_class("recording")
-        self.transcript_pane.set_text(f"Recording started... ({wav_path.name})\n")
+        self.transcript_pane.set_text(f"Recording started... ({wav_path.name})\n\n")
 
-    def _stop_recording(self) -> None:
-        """Stop audio recording."""
+    async def _stop_recording(self) -> None:
+        """Stop audio recording and transcription."""
         wav_path = self.audio_recorder.stop()
+        await self.transcriber.disconnect()
         self.status_bar.set_recording(False)
         self.status_bar.remove_class("recording")
         if wav_path:
-            self.transcript_pane.append_text(f"\nRecording stopped. Saved to {wav_path.name}\n")
+            self.transcript_pane.append_text(f"\n\nRecording stopped. Saved to {wav_path.name}\n")
+
+    def _on_audio_chunk(self, audio_bytes: bytes) -> None:
+        """Handle audio chunk from recorder."""
+        self.transcriber.send_audio_chunk(audio_bytes)
+
+    def _on_partial_transcript(self, text: str) -> None:
+        """Handle partial transcript update."""
+        self.call_from_thread(self._update_partial, text)
+
+    def _on_committed_transcript(self, text: str) -> None:
+        """Handle committed transcript."""
+        self.call_from_thread(self._update_committed, text)
+
+    def _update_partial(self, text: str) -> None:
+        """Update transcript pane with partial text."""
+        display = self._live_text + text
+        self.transcript_pane.set_text(display)
+
+    def _update_committed(self, text: str) -> None:
+        """Update transcript pane with committed text."""
+        self._live_text += text + " "
+        self.transcript_pane.set_text(self._live_text)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
@@ -124,10 +162,10 @@ class OpenMicApp(App):
 
         if command == "/start":
             if not self.status_bar.recording:
-                self._start_recording()
+                await self._start_recording()
         elif command == "/stop":
             if self.status_bar.recording:
-                self._stop_recording()
+                await self._stop_recording()
         elif command.startswith("/query"):
             self.transcript_pane.append_text("\n[Query feature not yet implemented]\n")
         elif command == "/notes":
