@@ -170,7 +170,7 @@ class CommandInput(Input):
     """Command input at the bottom of the screen."""
 
     def __init__(self) -> None:
-        super().__init__(placeholder="/start · /stop · /transcripts · /query · /notes")
+        super().__init__(placeholder="/start · /stop · /history · /query · /notes")
 
 
 class OpenMicApp(App):
@@ -533,10 +533,11 @@ class OpenMicApp(App):
                 self.transcript_pane.append_text(f"\nRenamed to: {new_path.name}\n")
             else:
                 self.transcript_pane.append_text("\nNo recent transcript to rename.\n")
-        elif command == "/transcripts":
+        elif command in ("/transcripts", "/history", "/transcript"):
             self._display_transcripts()
-        elif command.startswith("/transcript "):
-            name = command[12:].strip()
+        elif command.startswith("/transcript ") or command.startswith("/history "):
+            prefix_len = len(command.split()[0]) + 1
+            name = command[prefix_len:].strip()
             if name:
                 self._view_transcript(name)
             else:
