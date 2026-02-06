@@ -91,13 +91,17 @@ class StatusBar(Static):
     def __init__(self) -> None:
         super().__init__("○ IDLE")
         self.recording = False
+        self.paused = False
 
     def on_mount(self) -> None:
         self._update_display()
 
     def _update_display(self) -> None:
         theme = self.app.current_theme
-        if self.recording:
+        if self.paused:
+            warning = theme.accent or "#ffaa00"
+            text = Text("⏸ PAUSED", style=f"bold {warning}")
+        elif self.recording:
             text = Text("◉ RECORDING", style=f"bold {theme.error}")
         else:
             muted = theme.secondary or "#555577"
@@ -106,6 +110,11 @@ class StatusBar(Static):
 
     def set_recording(self, recording: bool) -> None:
         self.recording = recording
+        self.paused = False
+        self._update_display()
+
+    def set_paused(self, paused: bool) -> None:
+        self.paused = paused
         self._update_display()
 
 
@@ -491,13 +500,19 @@ class OpenMicApp(App):
 
     async def action_toggle_recording(self) -> None:
         """Toggle recording state."""
-        if self.status_bar.recording:
+        if self.status_bar.paused:
+            await self._resume_recording()
+        elif self.status_bar.recording:
             await self._stop_recording()
         else:
             await self._start_recording()
 
     async def _start_recording(self) -> None:
         """Start audio recording and transcription."""
+        # If paused, resume instead of starting fresh
+        if self.audio_recorder.is_paused:
+            await self._resume_recording()
+            return
         self._live_text = ""
         self._current_wav_path = self.audio_recorder.start()
         await self.transcriber.connect()
@@ -506,10 +521,33 @@ class OpenMicApp(App):
         session_info = f" [{self._session_name}]" if self._session_name else ""
         self.transcript_pane.set_text(f"Recording started...{session_info} ({self._current_wav_path.name})\n\n")
 
+    async def _pause_recording(self) -> None:
+        """Pause recording without stopping the session."""
+        if not self.status_bar.recording or self.status_bar.paused:
+            return
+        self.audio_recorder.pause()
+        await self.transcriber.disconnect()
+        self.status_bar.set_paused(True)
+        self.status_bar.remove_class("recording")
+        self.transcript_pane.append_text("\n\n[Paused]\n")
+
+    async def _resume_recording(self) -> None:
+        """Resume recording after pause."""
+        if not self.audio_recorder.is_paused:
+            return
+        self.audio_recorder.resume()
+        await self.transcriber.connect()
+        self.status_bar.set_paused(False)
+        self.status_bar.set_recording(True)
+        self.status_bar.add_class("recording")
+        self.transcript_pane.append_text("\n[Resumed]\n\n")
+
     async def _stop_recording(self) -> None:
         """Stop audio recording and transcription."""
+        was_paused = self.audio_recorder.is_paused
         wav_path = self.audio_recorder.stop()
-        await self.transcriber.disconnect()
+        if not was_paused:
+            await self.transcriber.disconnect()
         self.status_bar.set_recording(False)
         self.status_bar.remove_class("recording")
         if wav_path:
@@ -732,15 +770,22 @@ class OpenMicApp(App):
             return
 
         if command == "/start":
-            if not self.status_bar.recording:
+            if self.status_bar.paused:
+                await self._resume_recording()
+            elif not self.status_bar.recording:
                 self._session_name = None
                 await self._start_recording()
         elif command.startswith("/start "):
-            if not self.status_bar.recording:
+            if self.status_bar.paused:
+                await self._resume_recording()
+            elif not self.status_bar.recording:
                 self._session_name = command[7:].strip().replace(" ", "_")
                 await self._start_recording()
+        elif command == "/pause":
+            if self.status_bar.recording and not self.status_bar.paused:
+                await self._pause_recording()
         elif command == "/stop" or command.startswith("/stop "):
-            if self.status_bar.recording:
+            if self.status_bar.recording or self.status_bar.paused:
                 name = command[5:].strip() if command.startswith("/stop ") else None
                 if name:
                     self._session_name = name.replace(" ", "_")

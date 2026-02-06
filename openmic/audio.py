@@ -10,6 +10,17 @@ import sounddevice as sd
 import numpy as np
 
 
+def _find_input_device() -> int | None:
+    """Find a working input device, preferring pipewire."""
+    devices = sd.query_devices()
+    # Prefer pipewire, then any device with input channels
+    for priority_name in ("pipewire",):
+        for i, d in enumerate(devices):
+            if d["max_input_channels"] > 0 and priority_name in d["name"].lower():
+                return i
+    return None
+
+
 class AudioRecorder:
     """Records audio from microphone to WAV file."""
 
@@ -25,14 +36,20 @@ class AudioRecorder:
         self.output_dir = output_dir or Path(".")
         self.on_audio_chunk = on_audio_chunk
         self._recording = False
+        self._paused = False
         self._frames: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
         self._current_file: Path | None = None
+        self._device = _find_input_device()
 
     @property
     def is_recording(self) -> bool:
         return self._recording
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
 
     @property
     def current_file(self) -> Path | None:
@@ -77,6 +94,7 @@ class AudioRecorder:
         self._recording = True
 
         self._stream = sd.InputStream(
+            device=self._device,
             samplerate=self.SAMPLE_RATE,
             channels=self.CHANNELS,
             dtype=self.DTYPE,
@@ -86,6 +104,31 @@ class AudioRecorder:
         self._stream.start()
 
         return self._current_file
+
+    def pause(self) -> None:
+        """Pause recording. Stops mic capture but keeps frames and file handle."""
+        if not self._recording or self._paused:
+            return
+        self._paused = True
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+
+    def resume(self) -> None:
+        """Resume recording after pause. Restarts mic capture, appends to same file."""
+        if not self._recording or not self._paused:
+            return
+        self._paused = False
+        self._stream = sd.InputStream(
+            device=self._device,
+            samplerate=self.SAMPLE_RATE,
+            channels=self.CHANNELS,
+            dtype=self.DTYPE,
+            callback=self._audio_callback,
+            blocksize=1024,
+        )
+        self._stream.start()
 
     def stop(self) -> Path | None:
         """Stop recording and save the WAV file.
@@ -97,6 +140,7 @@ class AudioRecorder:
             return None
 
         self._recording = False
+        self._paused = False
 
         if self._stream is not None:
             self._stream.stop()
