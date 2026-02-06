@@ -85,9 +85,9 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 ### Phase 7 — Testing & Bug Fixes
 
 #### 7.1 — Wire up Realtime WebSocket
-- [ ] Implement `RealtimeTranscriber.send_audio_chunk()` to actually stream audio to ElevenLabs Scribe WebSocket
-- [ ] Handle incoming `partial_transcript` and `committed_transcript` messages from WebSocket
-- [ ] Verify live text appears in TUI during recording (before `/stop`)
+- [x] Implement `RealtimeTranscriber.send_audio_chunk()` to actually stream audio to ElevenLabs Scribe WebSocket
+- [x] Handle incoming `partial_transcript` and `committed_transcript` messages from WebSocket
+- [ ] Verify live text appears in TUI during recording (before `/stop`) *(requires manual testing)*
 
 #### 7.2 — Automated Tests (pytest)
 - [x] Add pytest + pytest-asyncio to dev dependencies
@@ -106,9 +106,9 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [ ] `Ctrl+C` — quits cleanly
 
 #### 7.4 — Documentation Audit
-- [ ] Update README: clarify that OPENAI_API_KEY is required for embeddings even with `LLM_PROVIDER=anthropic`
-- [ ] Update .env.example with all required keys and comments
-- [ ] Verify all commands in README match actual implementation
+- [x] Update README: clarify that OPENAI_API_KEY is required for embeddings even with `LLM_PROVIDER=anthropic`
+- [x] Update .env.example with all required keys and comments
+- [x] Verify all commands in README match actual implementation
 
 ---
 

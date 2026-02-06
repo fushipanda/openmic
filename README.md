@@ -48,26 +48,40 @@ openmic
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Start recording a meeting |
-| `/start <name>` | Start recording with a session name |
-| `/stop` | Stop recording and process with diarization |
-| `/query <question>` | Ask a question about past meetings |
-| `/notes` | Generate structured notes from the last meeting |
+| `/start [name]` | Start recording (optionally with session name) |
+| `/stop [name]` | Stop recording and process with diarization |
+| `/pause` | Pause recording (resume with `/start`) |
+| `/history` | Browse saved transcripts in a popup |
+| `/transcript <n>` | View a transcript by number or name |
+| `/query <question>` | Ask a question about a specific transcript |
+| `/notes` | Generate structured notes from a chosen transcript |
+| `/name <name>` | Rename the latest transcript |
+| `/help` | Show help popup |
+| `/verbose` | Toggle debug output |
+
+Aliases: `/transcripts`, `/transcript` (no args) also open the transcript browser.
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+R` | Toggle recording |
+| `Ctrl+R` | Toggle recording / pause |
+| `Ctrl+T` | Cycle theme |
 | `Ctrl+C` | Quit application |
+| `?` | Show help popup |
 
 ## Features
 
-- **Live Transcription**: See words appear as you speak via ElevenLabs Scribe realtime
+- **Live Transcription**: See words appear as you speak via ElevenLabs Scribe realtime, with natural paragraph breaks
 - **Speaker Diarization**: Final transcripts include speaker labels (Speaker 1, Speaker 2, etc.)
-- **RAG Querying**: Ask questions about any past meeting transcript
+- **RAG Querying**: Ask questions about a specific meeting transcript via picker
 - **Meeting Notes**: Auto-generate structured notes with agenda, key points, decisions, and action items
-- **Session Naming**: Name your meetings for easier organization
+- **Session Naming**: Name your meetings for easier organization, or name after recording
+- **Pause/Resume**: Pause recording without ending the session
+- **Transcript Browser**: Browse transcripts grouped by date in a modal popup
+- **Scrollable Transcript**: Scroll through live transcript with smart auto-scroll
+- **Help Popup**: Press `?` or type `/help` for a quick reference
+- **Themes**: Switch between OpenMic and Nord themes with `Ctrl+T`
 
 ## File Storage
 
