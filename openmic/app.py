@@ -43,7 +43,7 @@ from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
 from openmic.storage import save_transcript, list_transcripts, rename_transcript
 from openmic.rag import TranscriptRAG
-from openmic.notes import generate_notes_for_latest
+from openmic.notes import generate_meeting_notes, generate_notes_for_latest
 
 load_dotenv()
 
@@ -640,21 +640,37 @@ class OpenMicApp(App):
             pass
 
     async def _run_query(self, question: str) -> None:
-        """Run a RAG query against the transcripts."""
+        """Run a RAG query — show picker if multiple transcripts exist."""
+        transcripts = list_transcripts()
+        if not transcripts:
+            self.transcript_pane.set_text("No transcripts available to query.\n")
+            return
+        if len(transcripts) == 1:
+            await self._run_query_on_path(question, transcripts[0])
+            return
+
+        def on_selected(path: Path | None) -> None:
+            if path is not None:
+                asyncio.ensure_future(self._run_query_on_path(question, path))
+
+        self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
+
+    async def _run_query_on_path(self, question: str, transcript_path: Path) -> None:
+        """Run a RAG query against a specific transcript."""
         theme = self.current_theme
         primary = theme.primary or "#00d4aa"
         muted = theme.secondary or "#555577"
         fg = theme.foreground or "#e8e8e8"
         processing = Text("Querying: ", style=f"italic {muted}")
         processing.append(question, style=fg)
-        processing.append("\n\nSearching transcripts...", style=f"italic {muted}")
+        processing.append(f"\n\nSearching {transcript_path.stem}...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
         self.transcript_pane._text = ""
         self.transcript_pane.update(processing)
         try:
             answer = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.rag.query(question),
+                lambda: self.rag.query_file(question, transcript_path),
             )
             result = Text()
             result.append("Q: ", style=f"bold {primary}")
@@ -666,7 +682,23 @@ class OpenMicApp(App):
             self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
 
     async def _generate_notes(self) -> None:
-        """Generate meeting notes from the latest transcript."""
+        """Generate meeting notes — show picker if multiple transcripts exist."""
+        transcripts = list_transcripts()
+        if not transcripts:
+            self.transcript_pane.set_text("No transcripts available to generate notes from.\n")
+            return
+        if len(transcripts) == 1:
+            await self._generate_notes_for_path(transcripts[0])
+            return
+
+        def on_selected(path: Path | None) -> None:
+            if path is not None:
+                asyncio.ensure_future(self._generate_notes_for_path(path))
+
+        self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
+
+    async def _generate_notes_for_path(self, transcript_path: Path) -> None:
+        """Generate meeting notes for a specific transcript."""
         muted = self.current_theme.secondary or "#555577"
         processing = Text("Generating meeting notes...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
@@ -675,13 +707,10 @@ class OpenMicApp(App):
         try:
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                generate_notes_for_latest,
+                lambda: generate_meeting_notes(transcript_path),
             )
-            if result is None:
-                self.transcript_pane.set_text("No transcripts available to generate notes from.\n")
-            else:
-                notes_content, notes_path = result
-                self.transcript_pane.set_text(f"{notes_content}\n\nSaved to: {notes_path}\n")
+            notes_content, notes_path = result
+            self.transcript_pane.set_text(f"{notes_content}\n\nSaved to: {notes_path}\n")
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError generating notes: {e}\n")
 

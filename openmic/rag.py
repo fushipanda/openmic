@@ -99,3 +99,37 @@ class TranscriptRAG:
 
         result = self._qa_chain.invoke({"query": question})
         return result.get("result", "Unable to generate answer.")
+
+    def query_file(self, question: str, transcript_path: Path) -> str:
+        """Query a specific transcript file.
+
+        Args:
+            question: The question to answer
+            transcript_path: Path to the specific transcript file
+
+        Returns:
+            The answer from the LLM based on the transcript content
+        """
+        from langchain_community.document_loaders import TextLoader
+
+        loader = TextLoader(str(transcript_path))
+        documents = loader.load()
+        if not documents:
+            return "Transcript is empty."
+
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+        )
+        splits = text_splitter.split_documents(documents)
+
+        embeddings = get_embeddings()
+        vectorstore = FAISS.from_documents(splits, embeddings)
+        llm = get_llm()
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=vectorstore.as_retriever(search_kwargs={"k": 4}),
+        )
+        result = qa_chain.invoke({"query": question})
+        return result.get("result", "Unable to generate answer.")
