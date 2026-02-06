@@ -10,7 +10,8 @@ from pathlib import Path
 from rich.text import Text
 
 from textual.app import App, ComposeResult
-from textual.containers import Container
+from textual.containers import Container, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Input, Static
 from textual.binding import Binding
 from textual.theme import Theme
@@ -199,6 +200,76 @@ class CommandInput(Input):
         super().__init__(placeholder="/start · /stop · /history · /query · /notes")
 
 
+HELP_COMMANDS = [
+    ("/start [name]", "Start recording (optionally with session name)"),
+    ("/stop [name]", "Stop recording and run batch transcription"),
+    ("/pause", "Pause recording (resume with /start)"),
+    ("/history", "List saved transcripts"),
+    ("/transcript <n>", "View transcript by number or name"),
+    ("/query <question>", "Ask a question about your transcripts"),
+    ("/notes", "Generate structured meeting notes"),
+    ("/name <name>", "Rename the latest transcript"),
+    ("/verbose", "Toggle debug output"),
+    ("", ""),
+    ("Ctrl+R", "Toggle recording on/off"),
+    ("Ctrl+T", "Cycle theme"),
+    ("Ctrl+C", "Quit"),
+    ("?", "Show this help"),
+]
+
+
+class HelpScreen(ModalScreen):
+    """Modal help popup showing available commands."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("question_mark", "dismiss", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+
+    HelpScreen > Vertical {
+        width: 64;
+        max-height: 80%;
+        background: $surface;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    HelpScreen > Vertical > Static {
+        width: 100%;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(id="help-content")
+
+    def on_mount(self) -> None:
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+        muted = theme.secondary or "#555577"
+        fg = theme.foreground or "#e8e8e8"
+
+        text = Text()
+        text.append("Help\n\n", style=f"bold {primary}")
+
+        text.append("Commands\n", style=f"bold {fg}")
+        for cmd, desc in HELP_COMMANDS:
+            if not cmd:
+                text.append("\n")
+                text.append("Shortcuts\n", style=f"bold {fg}")
+                continue
+            text.append(f"  {cmd:<22}", style=f"bold {primary}")
+            text.append(f" {desc}\n", style=muted)
+
+        text.append(f"\nPress Esc to close", style=f"italic {muted}")
+        self.query_one("#help-content").update(text)
+
+
 class OpenMicApp(App):
     """OpenMic TUI application."""
 
@@ -245,6 +316,7 @@ class OpenMicApp(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+r", "toggle_recording", "Record"),
         Binding("ctrl+t", "cycle_theme", "Theme", show=False),
+        Binding("question_mark", "show_help", "Help", show=False),
     ]
 
     def __init__(self) -> None:
@@ -295,6 +367,10 @@ class OpenMicApp(App):
         if self.transcript_pane._show_banner:
             self.transcript_pane._render_banner()
         self.status_bar._update_display()
+
+    def action_show_help(self) -> None:
+        """Show the help popup."""
+        self.push_screen(HelpScreen())
 
     async def action_toggle_recording(self) -> None:
         """Toggle recording state."""
@@ -573,6 +649,8 @@ class OpenMicApp(App):
                 self._view_transcript(name)
             else:
                 self.transcript_pane.append_text("\nUsage: /transcript <name or number>\n")
+        elif command in ("/help", "?"):
+            self.action_show_help()
         elif command == "/verbose":
             self._verbose = not self._verbose
             self.transcriber.verbose = self._verbose
