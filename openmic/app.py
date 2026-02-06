@@ -463,6 +463,7 @@ class OpenMicApp(App):
         self._latest_transcript_path: Path | None = None
         self.rag = TranscriptRAG()
         self._session_name: str | None = None
+        self._awaiting_session_name = False
 
     def compose(self) -> ComposeResult:
         yield self.status_bar
@@ -563,6 +564,11 @@ class OpenMicApp(App):
             self._latest_transcript_path = save_transcript(segments, self._session_name)
             self._display_diarized_transcript(segments)
             self._cleanup_wav(wav_path)
+            # Prompt for session name if none was provided
+            if not self._session_name:
+                self._awaiting_session_name = True
+                self.command_input.placeholder = "Name this session (Enter to skip)"
+                self.command_input.focus()
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError during transcription: {e}\n")
 
@@ -704,10 +710,26 @@ class OpenMicApp(App):
 
         self._view_transcript_path(target)
 
+    def _reset_command_input(self) -> None:
+        """Reset command input to default state."""
+        self.command_input.placeholder = "/start · /stop · /history · /query · /notes"
+        self._awaiting_session_name = False
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
         command = event.value.strip()
         self.command_input.value = ""
+
+        # Handle session naming prompt
+        if self._awaiting_session_name:
+            self._reset_command_input()
+            if command and self._latest_transcript_path and self._latest_transcript_path.exists():
+                new_name = command.replace(" ", "_")
+                new_path = rename_transcript(self._latest_transcript_path, new_name)
+                self._latest_transcript_path = new_path
+                muted = self.current_theme.secondary or "#555577"
+                self.transcript_pane.append_text(f"\nRenamed to: {new_path.name}\n")
+            return
 
         if command == "/start":
             if not self.status_bar.recording:
