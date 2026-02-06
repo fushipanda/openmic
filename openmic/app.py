@@ -133,10 +133,18 @@ class TranscriptPane(Static):
         if self._auto_scroll:
             self.call_after_refresh(self.scroll_end, animate=False)
 
+    @staticmethod
+    def _dim_color(hex_color: str, factor: float = 0.35) -> str:
+        """Dim a hex color by a factor (0-1) for shadow effect."""
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        r, g, b = int(r * factor), int(g * factor), int(b * factor)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
     def _render_banner(self) -> None:
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
-        shadow = theme.secondary or "#064a38"
+        shadow = self._dim_color(primary)
         muted = theme.secondary or "#555577"
 
         lines = BANNER.split("\n")
