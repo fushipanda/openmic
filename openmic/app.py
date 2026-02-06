@@ -325,8 +325,13 @@ class OpenMicApp(App):
         self.transcript_pane.set_text(display)
 
     def _update_committed(self, text: str) -> None:
-        """Update transcript pane with committed text."""
-        self._live_text += text + " "
+        """Update transcript pane with committed text.
+
+        Each committed segment (triggered by VAD silence detection) starts
+        on a new line to create natural paragraph breaks.
+        """
+        separator = "\n" if self._live_text else ""
+        self._live_text += separator + text
         self.transcript_pane.set_text(self._live_text)
 
     async def _run_batch_transcription(self, wav_path: Path) -> None:
