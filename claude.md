@@ -82,6 +82,34 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Add optional session naming: prompt at start, used in the transcript filename
 - [x] Update README with setup, `.env` config, and command reference
 
+### Phase 7 — Testing & Bug Fixes
+
+#### 7.1 — Wire up Realtime WebSocket
+- [ ] Implement `RealtimeTranscriber.send_audio_chunk()` to actually stream audio to ElevenLabs Scribe WebSocket
+- [ ] Handle incoming `partial_transcript` and `committed_transcript` messages from WebSocket
+- [ ] Verify live text appears in TUI during recording (before `/stop`)
+
+#### 7.2 — Automated Tests (pytest)
+- [x] Add pytest + pytest-asyncio to dev dependencies
+- [x] Unit tests for `storage.py`: save/load transcripts and notes
+- [x] Unit tests for `transcribe.py`: parse_diarized_result with sample responses
+- [x] Integration test for RAG pipeline with mocked embeddings
+- [x] Integration test for notes generation with mocked LLM
+
+#### 7.3 — Manual TUI Verification
+- [ ] `/start` — recording starts, status changes to RECORDING, mic captures audio
+- [ ] `/start <name>` — session name appears in status/filename
+- [ ] `/stop` — batch transcription runs, diarized output displays, .wav deleted
+- [ ] `/query <question>` — RAG returns relevant answer from transcripts/
+- [ ] `/notes` — generates structured notes, saves to notes/
+- [ ] `Ctrl+R` — toggles recording on/off
+- [ ] `Ctrl+C` — quits cleanly
+
+#### 7.4 — Documentation Audit
+- [ ] Update README: clarify that OPENAI_API_KEY is required for embeddings even with `LLM_PROVIDER=anthropic`
+- [ ] Update .env.example with all required keys and comments
+- [ ] Verify all commands in README match actual implementation
+
 ---
 
 When all TODO items are checked off, output: `<promise>COMPLETE</promise>`

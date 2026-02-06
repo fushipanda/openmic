@@ -2,14 +2,21 @@
 
 import asyncio
 import base64
+import json
 import os
+import queue
 from typing import Callable
+
+import websockets
 
 from elevenlabs.client import ElevenLabs
 
 
 class RealtimeTranscriber:
     """Handles realtime transcription via ElevenLabs Scribe WebSocket."""
+
+    WEBSOCKET_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+    SAMPLE_RATE = 16000
 
     def __init__(
         self,
@@ -18,9 +25,12 @@ class RealtimeTranscriber:
     ) -> None:
         self.on_partial = on_partial
         self.on_committed = on_committed
-        self._client: ElevenLabs | None = None
-        self._connection = None
+        self._ws = None
         self._running = False
+        self._audio_queue: queue.Queue[bytes] = queue.Queue()
+        self._send_task: asyncio.Task | None = None
+        self._receive_task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def connect(self) -> None:
         """Establish WebSocket connection to Scribe realtime API."""
@@ -28,13 +38,53 @@ class RealtimeTranscriber:
         if not api_key:
             raise ValueError("ELEVENLABS_API_KEY environment variable not set")
 
-        self._client = ElevenLabs(api_key=api_key)
         self._running = True
+        self._loop = asyncio.get_event_loop()
+
+        # Connect with API key header
+        headers = {"xi-api-key": api_key}
+        self._ws = await websockets.connect(
+            self.WEBSOCKET_URL,
+            additional_headers=headers,
+            subprotocols=["chat"],
+        )
+
+        # Start send and receive tasks
+        self._send_task = asyncio.create_task(self._send_audio_loop())
+        self._receive_task = asyncio.create_task(self._receive_loop())
 
     async def disconnect(self) -> None:
         """Close the WebSocket connection."""
         self._running = False
-        self._connection = None
+
+        # Cancel tasks
+        if self._send_task:
+            self._send_task.cancel()
+            try:
+                await self._send_task
+            except asyncio.CancelledError:
+                pass
+            self._send_task = None
+
+        if self._receive_task:
+            self._receive_task.cancel()
+            try:
+                await self._receive_task
+            except asyncio.CancelledError:
+                pass
+            self._receive_task = None
+
+        # Close WebSocket
+        if self._ws:
+            await self._ws.close()
+            self._ws = None
+
+        # Clear audio queue
+        while not self._audio_queue.empty():
+            try:
+                self._audio_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def send_audio_chunk(self, audio_bytes: bytes) -> None:
         """Send an audio chunk to the transcription service.
@@ -42,16 +92,75 @@ class RealtimeTranscriber:
         Args:
             audio_bytes: Raw audio bytes (16-bit PCM, 16kHz mono)
         """
-        if not self._running or self._client is None:
+        if not self._running:
             return
 
-        # ElevenLabs expects base64 encoded audio for the websocket
-        # This will be used when streaming is implemented
-        _ = base64.b64encode(audio_bytes).decode("utf-8")
+        # Queue the audio for async sending
+        self._audio_queue.put(audio_bytes)
+
+    async def _send_audio_loop(self) -> None:
+        """Continuously send queued audio chunks to the WebSocket."""
+        while self._running and self._ws:
+            try:
+                # Non-blocking check with timeout
+                try:
+                    audio_bytes = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: self._audio_queue.get(timeout=0.1)
+                    )
+                except queue.Empty:
+                    continue
+
+                # Encode and send
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                message = {
+                    "message_type": "input_audio_chunk",
+                    "audio_base_64": audio_b64,
+                    "commit": False,
+                    "sample_rate": self.SAMPLE_RATE,
+                }
+                await self._ws.send(json.dumps(message))
+
+            except websockets.exceptions.ConnectionClosed:
+                break
+            except Exception:
+                # Log error but continue
+                continue
+
+    async def _receive_loop(self) -> None:
+        """Continuously receive transcription events from the WebSocket."""
+        while self._running and self._ws:
+            try:
+                message = await self._ws.recv()
+                event = json.loads(message)
+                message_type = event.get("message_type", "")
+
+                if message_type == "partial_transcript":
+                    text = event.get("text", "")
+                    if text and self.on_partial:
+                        self.on_partial(text)
+
+                elif message_type == "committed_transcript":
+                    text = event.get("text", "")
+                    if text and self.on_committed:
+                        self.on_committed(text)
+
+                elif message_type == "session_started":
+                    # Connection established successfully
+                    pass
+
+                elif message_type in ("auth_error", "quota_exceeded", "rate_limited", "input_error"):
+                    # Handle errors - could log or raise
+                    pass
+
+            except websockets.exceptions.ConnectionClosed:
+                break
+            except Exception:
+                # Log error but continue
+                continue
 
     @property
     def is_connected(self) -> bool:
-        return self._running and self._client is not None
+        return self._running and self._ws is not None
 
 
 class BatchTranscriber:

@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
+from langchain_core.prompts import PromptTemplate
+from langchain_classic.chains import LLMChain
 
 from openmic.rag import get_llm
 from openmic.storage import get_latest_transcript, save_notes
