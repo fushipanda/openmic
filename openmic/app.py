@@ -5,6 +5,7 @@ warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
 
 import asyncio
 import json
+from datetime import datetime, date
 from pathlib import Path
 
 from rich.text import Text
@@ -12,7 +13,8 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Input, Static
+from textual.widgets import Footer, Input, OptionList, Static
+from textual.widgets.option_list import Option, Separator
 from textual.binding import Binding
 from textual.theme import Theme
 
@@ -268,6 +270,120 @@ class HelpScreen(ModalScreen):
 
         text.append(f"\nPress Esc to close", style=f"italic {muted}")
         self.query_one("#help-content").update(text)
+
+
+def _parse_transcript_meta(path: Path) -> dict:
+    """Extract metadata from a transcript filename."""
+    stem = path.stem
+    # Timestamp is first 16 chars: YYYY-MM-DD_HH-MM
+    ts_str = stem[:16]
+    name = stem[17:].replace("_", " ") if len(stem) > 16 else ""
+    try:
+        dt = datetime.strptime(ts_str, "%Y-%m-%d_%H-%M")
+    except ValueError:
+        dt = None
+    return {"path": path, "name": name, "datetime": dt, "stem": stem}
+
+
+def _date_header(dt: datetime) -> str:
+    """Return a human-readable date header."""
+    today = date.today()
+    d = dt.date()
+    if d == today:
+        return "Today"
+    from datetime import timedelta
+    if d == today - timedelta(days=1):
+        return "Yesterday"
+    # e.g. "Jan 6th 2026"
+    day = dt.day
+    if 11 <= day <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return dt.strftime(f"%b {day}{suffix} %Y")
+
+
+class TranscriptPickerScreen(ModalScreen[Path | None]):
+    """Modal popup for selecting a transcript."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    TranscriptPickerScreen {
+        align: center middle;
+    }
+
+    TranscriptPickerScreen > Vertical {
+        width: 64;
+        max-height: 80%;
+        background: $surface;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    TranscriptPickerScreen > Vertical > Static {
+        width: 100%;
+        height: auto;
+    }
+
+    TranscriptPickerScreen > Vertical > OptionList {
+        height: auto;
+        max-height: 20;
+        background: $surface;
+        border: none;
+    }
+    """
+
+    def __init__(self, transcripts: list[Path]) -> None:
+        super().__init__()
+        self._transcripts = transcripts
+        self._path_map: dict[str, Path] = {}
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(id="picker-title")
+            yield OptionList(id="picker-list")
+
+    def on_mount(self) -> None:
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+
+        title = Text("Transcripts", style=f"bold {primary}")
+        self.query_one("#picker-title").update(title)
+
+        option_list = self.query_one("#picker-list", OptionList)
+        metas = [_parse_transcript_meta(p) for p in self._transcripts]
+
+        last_header = None
+        for meta in metas:
+            dt = meta["datetime"]
+            if dt:
+                header = _date_header(dt)
+                if header != last_header:
+                    if last_header is not None:
+                        option_list.add_option(Separator())
+                    prompt = Text(f"  {header}", style="bold")
+                    option_list.add_option(Option(prompt, disabled=True))
+                    last_header = header
+
+                name = meta["name"] or "Untitled"
+                time_str = dt.strftime("%-I:%M %p")
+                # Build a formatted line: name left, time right
+                label = Text()
+                label.append(f"  {name}", style=f"bold {theme.foreground or '#e8e8e8'}")
+                pad = max(1, 50 - len(name) - len(time_str))
+                label.append(" " * pad)
+                label.append(time_str, style=theme.secondary or "#555577")
+
+                option_id = str(meta["path"])
+                self._path_map[option_id] = meta["path"]
+                option_list.add_option(Option(label, id=option_id))
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option.id and event.option.id in self._path_map:
+            self.dismiss(self._path_map[event.option.id])
 
 
 class OpenMicApp(App):
@@ -526,32 +642,33 @@ class OpenMicApp(App):
             self.transcript_pane.append_text(f"\n\nError generating notes: {e}\n")
 
     def _display_transcripts(self) -> None:
-        """Display a list of saved transcripts."""
-        theme = self.current_theme
-        primary = theme.primary or "#00d4aa"
-        muted = theme.secondary or "#555577"
-        fg = theme.foreground or "#e8e8e8"
-
+        """Show transcript picker popup."""
         transcripts = list_transcripts()
         if not transcripts:
             self.transcript_pane.set_text("No transcripts found.\n")
             return
 
-        text = Text()
-        text.append("Transcripts\n\n", style=f"bold {primary}")
-        for i, path in enumerate(transcripts, 1):
-            stem = path.stem
-            # Parse: timestamp is first 16 chars, rest after _ is the name
-            timestamp = stem[:16].replace("_", " ")
-            name = stem[17:].replace("_", " ") if len(stem) > 16 else ""
-            text.append(f"  {i}. ", style=f"bold {primary}")
-            if name:
-                text.append(f"{name}", style=f"bold {fg}")
-                text.append(f"  {timestamp}\n", style=muted)
-            else:
-                text.append(f"{timestamp}\n", style=fg)
+        def on_selected(path: Path | None) -> None:
+            if path is not None:
+                self._view_transcript_path(path)
 
-        text.append(f"\nUse /transcript <number> to view\n", style=f"italic {muted}")
+        self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
+
+    def _view_transcript_path(self, target: Path) -> None:
+        """View a transcript by its file path."""
+        theme = self.current_theme
+        primary = theme.primary or "#00d4aa"
+        muted = theme.secondary or "#555577"
+
+        content = target.read_text()
+        stem = target.stem
+        name = stem[17:].replace("_", " ") if len(stem) > 16 else stem
+
+        text = Text()
+        if name:
+            text.append(f"{name}\n\n", style=f"bold {primary}")
+        text.append(content)
+        text.append(f"\n{target}\n", style=f"italic {muted}")
 
         self.transcript_pane._show_banner = False
         self.transcript_pane._text = ""
@@ -559,10 +676,6 @@ class OpenMicApp(App):
 
     def _view_transcript(self, identifier: str) -> None:
         """View a specific transcript by number or name."""
-        theme = self.current_theme
-        primary = theme.primary or "#00d4aa"
-        muted = theme.secondary or "#555577"
-
         transcripts = list_transcripts()
         if not transcripts:
             self.transcript_pane.set_text("No transcripts found.\n")
@@ -589,19 +702,7 @@ class OpenMicApp(App):
             self.transcript_pane.set_text(f"Transcript not found: {identifier}\n")
             return
 
-        content = target.read_text()
-        stem = target.stem
-        name = stem[17:].replace("_", " ") if len(stem) > 16 else stem
-
-        text = Text()
-        if name:
-            text.append(f"{name}\n\n", style=f"bold {primary}")
-        text.append(content)
-        text.append(f"\n{target}\n", style=f"italic {muted}")
-
-        self.transcript_pane._show_banner = False
-        self.transcript_pane._text = ""
-        self.transcript_pane.update(text)
+        self._view_transcript_path(target)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
