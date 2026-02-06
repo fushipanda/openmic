@@ -31,8 +31,10 @@ Edit `.env` with your configuration:
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 LLM_PROVIDER=anthropic       # or openai
 ANTHROPIC_API_KEY=your_anthropic_api_key
-# OPENAI_API_KEY=your_openai_api_key
+OPENAI_API_KEY=your_openai_api_key  # Always required for embeddings, even with anthropic
 ```
+
+**Note:** `OPENAI_API_KEY` is required regardless of your `LLM_PROVIDER` setting, since Anthropic does not provide an embeddings API. Embeddings are used for RAG queries (`/query` command).
 
 ## Usage
 
@@ -93,7 +95,45 @@ Post-session:
 
 - Python 3.12+
 - ElevenLabs API key (for transcription)
-- Anthropic or OpenAI API key (for RAG and notes generation)
+- OpenAI API key (for embeddings - always required)
+- Anthropic or OpenAI API key (for LLM - RAG answers and notes generation)
+
+## Development
+
+### Running Tests
+
+The project includes a comprehensive test suite with 40+ tests covering storage, transcription parsing, RAG pipeline, and notes generation.
+
+Install development dependencies:
+
+```bash
+pip install -e ".[dev,anthropic,openai]"
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+Run tests with verbose output:
+
+```bash
+pytest -v
+```
+
+Run specific test file:
+
+```bash
+pytest tests/test_storage.py
+```
+
+### Test Coverage
+
+- `tests/test_storage.py` - Unit tests for transcript and notes storage (13 tests)
+- `tests/test_transcribe.py` - Unit tests for diarization parsing (8 tests)
+- `tests/test_rag.py` - Integration tests for RAG pipeline (11 tests)
+- `tests/test_notes.py` - Integration tests for notes generation (7 tests)
 
 ---
 
@@ -153,18 +193,12 @@ openmic/
           └── storage.save_notes()  → writes notes/*_notes.md
 ```
 
-### Known limitations / stubs
-
-- **Realtime WebSocket is not wired up.** `RealtimeTranscriber.send_audio_chunk()`
-  base64-encodes each chunk but discards it. The actual WebSocket streaming to
-  ElevenLabs Scribe has not been implemented. The live preview pane will remain
-  empty during recording; the diarized transcript appears only after `/stop`
-  completes the batch call.
+### Known limitations
 
 - **Embeddings always use OpenAI.** `rag.get_embeddings()` returns
   `OpenAIEmbeddings()` regardless of `LLM_PROVIDER`. Anthropic does not expose
   an embeddings API, so an `OPENAI_API_KEY` is required for `/query` even when
-  `LLM_PROVIDER=anthropic`. The `.env.example` does not call this out.
+  `LLM_PROVIDER=anthropic`.
 
 - **Vector store is in-memory only.** The FAISS index is rebuilt from disk on
   every first `/query` in a session. It is not persisted between runs.
