@@ -37,15 +37,18 @@ class TranscriptPane(Static):
 
     def __init__(self) -> None:
         super().__init__("")
+        self._text = ""
 
     def append_text(self, text: str) -> None:
-        current = str(self.renderable)
-        self.update(current + text)
+        self._text += text
+        self.update(self._text)
 
     def set_text(self, text: str) -> None:
-        self.update(text)
+        self._text = text
+        self.update(self._text)
 
     def clear(self) -> None:
+        self._text = ""
         self.update("")
 
 
