@@ -113,10 +113,25 @@ class TranscriptPane(Static):
         super().__init__("")
         self._text = ""
         self._show_banner = True
+        self._auto_scroll = True
 
     def on_mount(self) -> None:
         if self._show_banner:
             self._render_banner()
+
+    def on_scroll_up(self) -> None:
+        """User scrolled up — disable auto-scroll."""
+        self._auto_scroll = False
+
+    def on_scroll_down(self) -> None:
+        """User scrolled down — re-enable auto-scroll if at bottom."""
+        if self.scroll_offset.y >= self.max_scroll_y - 1:
+            self._auto_scroll = True
+
+    def _scroll_to_bottom(self) -> None:
+        """Scroll to the bottom if auto-scroll is enabled."""
+        if self._auto_scroll:
+            self.call_after_refresh(self.scroll_end, animate=False)
 
     def _render_banner(self) -> None:
         theme = self.app.current_theme
@@ -154,15 +169,18 @@ class TranscriptPane(Static):
         self._show_banner = False
         self._text += text
         self.update(self._text)
+        self._scroll_to_bottom()
 
     def set_text(self, text: str) -> None:
         self._show_banner = False
         self._text = text
         self.update(self._text)
+        self._scroll_to_bottom()
 
     def clear(self) -> None:
         self._text = ""
         self._show_banner = True
+        self._auto_scroll = True
         self._render_banner()
 
 
