@@ -66,6 +66,36 @@ def list_transcripts() -> list[Path]:
     return sorted(TRANSCRIPTS_DIR.glob("*.md"), reverse=True)
 
 
+def rename_transcript(old_path: Path, new_name: str) -> Path:
+    """Rename a transcript file with a new session name.
+
+    Args:
+        old_path: Current path to the transcript
+        new_name: New session name to use
+
+    Returns:
+        Path to the renamed transcript file
+    """
+    # Extract timestamp prefix from existing filename
+    stem = old_path.stem
+    # Timestamp format is YYYY-MM-DD_HH-MM, which is 16 chars
+    timestamp = stem[:16]
+    new_name = new_name.strip().replace(" ", "_")
+    new_filename = f"{timestamp}_{new_name}.md"
+    new_path = old_path.parent / new_filename
+
+    # Update the heading inside the file too
+    content = old_path.read_text()
+    first_line_end = content.index("\n")
+    content = f"# Meeting Transcript - {timestamp} ({new_name})" + content[first_line_end:]
+    new_path.write_text(content)
+
+    if new_path != old_path:
+        old_path.unlink()
+
+    return new_path
+
+
 def save_notes(content: str, transcript_path: Path) -> Path:
     """Save generated notes alongside source transcript.
 

@@ -14,7 +14,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Input, OptionList, Static
-from textual.widgets.option_list import Option, Separator
+from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.theme import Theme
 
@@ -131,13 +131,13 @@ class TranscriptPane(Static):
         if self._show_banner:
             self._render_banner()
 
-    def on_scroll_up(self) -> None:
-        """User scrolled up — disable auto-scroll."""
-        self._auto_scroll = False
-
-    def on_scroll_down(self) -> None:
-        """User scrolled down — re-enable auto-scroll if at bottom."""
-        if self.scroll_offset.y >= self.max_scroll_y - 1:
+    def watch_scroll_y(self, old: float, new: float) -> None:
+        """Track scroll position to manage auto-scroll."""
+        if new < old:
+            # Scrolled up — disable auto-scroll
+            self._auto_scroll = False
+        elif self.max_scroll_y > 0 and new >= self.max_scroll_y - 1:
+            # Scrolled to bottom — re-enable auto-scroll
             self._auto_scroll = True
 
     def _scroll_to_bottom(self) -> None:
@@ -316,8 +316,11 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
     """Modal popup for selecting a transcript."""
 
     BINDINGS = [
-        Binding("escape", "dismiss(None)", "Close"),
+        Binding("escape", "cancel", "Close"),
     ]
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
     DEFAULT_CSS = """
     TranscriptPickerScreen {
@@ -372,7 +375,7 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
                 header = _date_header(dt)
                 if header != last_header:
                     if last_header is not None:
-                        option_list.add_option(Separator())
+                        option_list.add_option(None)
                     prompt = Text(f"  {header}", style="bold")
                     option_list.add_option(Option(prompt, disabled=True))
                     last_header = header
@@ -651,7 +654,7 @@ class OpenMicApp(App):
 
         def on_selected(path: Path | None) -> None:
             if path is not None:
-                asyncio.ensure_future(self._run_query_on_path(question, path))
+                self.call_later(self._run_query_on_path, question, path)
 
         self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
 
@@ -693,7 +696,7 @@ class OpenMicApp(App):
 
         def on_selected(path: Path | None) -> None:
             if path is not None:
-                asyncio.ensure_future(self._generate_notes_for_path(path))
+                self.call_later(self._generate_notes_for_path, path)
 
         self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
 

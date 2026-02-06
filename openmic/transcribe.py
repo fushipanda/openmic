@@ -15,22 +15,29 @@ from elevenlabs.client import ElevenLabs
 class RealtimeTranscriber:
     """Handles realtime transcription via ElevenLabs Scribe WebSocket."""
 
-    WEBSOCKET_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+    WEBSOCKET_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?commit_strategy=vad"
     SAMPLE_RATE = 16000
 
     def __init__(
         self,
         on_partial: Callable[[str], None] | None = None,
         on_committed: Callable[[str], None] | None = None,
+        on_error: Callable[[str], None] | None = None,
+        on_debug: Callable[[str], None] | None = None,
     ) -> None:
         self.on_partial = on_partial
         self.on_committed = on_committed
+        self.on_error = on_error
+        self.on_debug = on_debug
+        self.verbose = False
         self._ws = None
         self._running = False
         self._audio_queue: queue.Queue[bytes] = queue.Queue()
         self._send_task: asyncio.Task | None = None
         self._receive_task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._chunks_sent = 0
+        self._max_peak = 0
 
     async def connect(self) -> None:
         """Establish WebSocket connection to Scribe realtime API."""
@@ -100,9 +107,10 @@ class RealtimeTranscriber:
 
     async def _send_audio_loop(self) -> None:
         """Continuously send queued audio chunks to the WebSocket."""
+        self._chunks_sent = 0
+        self._max_peak = 0
         while self._running and self._ws:
             try:
-                # Non-blocking check with timeout
                 try:
                     audio_bytes = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: self._audio_queue.get(timeout=0.1)
@@ -110,20 +118,31 @@ class RealtimeTranscriber:
                 except queue.Empty:
                     continue
 
-                # Encode and send
+                # Track peak amplitude for verbose mode
+                if self.verbose and self.on_debug:
+                    import numpy as np
+                    samples = np.frombuffer(audio_bytes, dtype=np.int16)
+                    peak = int(np.max(np.abs(samples)))
+                    if peak > self._max_peak:
+                        self._max_peak = peak
+
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
                 message = {
                     "message_type": "input_audio_chunk",
                     "audio_base_64": audio_b64,
-                    "commit": False,
                     "sample_rate": self.SAMPLE_RATE,
                 }
                 await self._ws.send(json.dumps(message))
+                self._chunks_sent += 1
+
+                if self.verbose and self.on_debug and self._chunks_sent % 50 == 0:
+                    self.on_debug(f"chunks={self._chunks_sent} peak={self._max_peak}")
 
             except websockets.exceptions.ConnectionClosed:
                 break
-            except Exception:
-                # Log error but continue
+            except Exception as e:
+                if self.on_error:
+                    self.on_error(f"Send error: {e}")
                 continue
 
     async def _receive_loop(self) -> None:
@@ -133,6 +152,10 @@ class RealtimeTranscriber:
                 message = await self._ws.recv()
                 event = json.loads(message)
                 message_type = event.get("message_type", "")
+
+                if self.verbose and self.on_debug:
+                    text_preview = event.get("text", "")[:80]
+                    self.on_debug(f"ws recv: {message_type} [{text_preview}]")
 
                 if message_type == "partial_transcript":
                     text = event.get("text", "")
@@ -145,17 +168,21 @@ class RealtimeTranscriber:
                         self.on_committed(text)
 
                 elif message_type == "session_started":
-                    # Connection established successfully
-                    pass
+                    if self.on_error:
+                        self.on_error("Connected to ElevenLabs Scribe")
 
                 elif message_type in ("auth_error", "quota_exceeded", "rate_limited", "input_error"):
-                    # Handle errors - could log or raise
-                    pass
+                    error_msg = event.get("message", message_type)
+                    if self.on_error:
+                        self.on_error(f"ElevenLabs: {error_msg}")
 
             except websockets.exceptions.ConnectionClosed:
+                if self.on_error:
+                    self.on_error("WebSocket connection closed")
                 break
-            except Exception:
-                # Log error but continue
+            except Exception as e:
+                if self.on_error:
+                    self.on_error(f"Receive error: {e}")
                 continue
 
     @property
