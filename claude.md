@@ -112,4 +112,65 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ---
 
+## Feature Requests
+
+### FR-1: Help popup on `?` key ✅
+- Pressing `?` opens a centered popup listing all available commands with descriptions (similar to Claude Code's help)
+- Should show command name, usage, and brief description
+- Dismiss with `Esc` or `?` again
+
+### FR-2: Rename Nord theme and remove Theme footer button ✅
+- Rename `openmic-nord` theme to `nord`
+- Remove `Ctrl+T` / "Theme" from the footer bindings (keep the binding functional, just hide from footer)
+
+### FR-3: Scope `/query` and `/notes` to a specific transcript ✅
+- `/query` and `/notes` should operate on a chosen transcript, not all transcripts / latest
+- Ideally use the transcript picker popup (FR-5) to select which transcript
+
+### FR-4: `/history` alias for `/transcripts` ✅
+- Add `/history` as an alias that behaves identically to `/transcripts`
+- `/transcript` (singular) should also work as an alias
+
+### FR-5: Transcript history popup (redesign `/transcripts` and `/history`) ✅
+- Replace the current numbered list with a centered modal popup (similar to opencode sessions)
+- Group transcripts by date with headers: "Today", "Yesterday", or formatted date (e.g. "Jan 1st 2026")
+- Each entry shows: `[Meeting Name]` on the left, time (e.g. `10:00 AM`) aligned to the right
+- No numbered list (1. 2. 3.) — use selectable rows instead
+- Navigable with arrow keys, select with Enter, dismiss with Esc
+
+### FR-6: `/notes` transcript picker ✅
+- When running `/notes`, show the transcript picker popup (FR-5) to choose which transcript to generate notes for
+- If only one transcript exists, skip the picker and use it directly
+
+### FR-7: Scrollable live transcript ✅
+- During live transcription, the user should be able to scroll up/down through the transcript text
+- Auto-scroll to bottom on new text, but respect manual scroll position (don't force-scroll if user scrolled up)
+
+### FR-8: Structured live transcript (paragraph breaks) ✅
+- Live transcript currently outputs as a single paragraph
+- Use ElevenLabs `committed_transcript` events (triggered by VAD silence detection) as natural paragraph/line breaks
+- Each committed segment should start on a new line rather than being concatenated inline
+
+### FR-9: Prompt for session name after `/stop` ✅
+- After `/stop` finishes batch transcription, prompt the user to name the session
+- Could use the command input with a placeholder like "Name this session (Enter to skip)"
+- If skipped (empty Enter), keep the timestamp-only filename
+
+### FR-10: Pause command (`/pause`) ✅
+- `/pause` stops mic capture and stops sending audio chunks to the WebSocket
+- Keep the WebSocket connection alive (reconnect transparently if it times out)
+- Keep the WAV file handle open for appending
+- Transcript stays on screen, no batch processing triggered
+- `/start` after pause resumes: restarts mic capture, continues sending chunks, appends to same WAV
+- Status bar should show a "PAUSED" state (distinct from IDLE and RECORDING)
+- `/stop` after pause should work normally — processes the full WAV with all segments
+
+### FR-11 Shadow on title text ✅
+- Openmic text should have a clear shadow down and left behind the text, ensure the shadow is aligned near the text and colours match theme
+
+## Bugs
+
+
+---
+
 When all TODO items are checked off, output: `<promise>COMPLETE</promise>`
