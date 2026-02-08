@@ -345,7 +345,7 @@ class AutocompleteDropdown(Static):
     """
 
     def __init__(self) -> None:
-        super().__init__("")
+        super().__init__(" ")
         self._matches: list[tuple[str, str]] = []
         self._selected_index: int = 0
 
@@ -367,10 +367,11 @@ class AutocompleteDropdown(Static):
             self.display = False
             return
 
+        # Update content before making visible to avoid None render
+        self._render_content()
         self.display = True
-        self._render()
 
-    def _render(self) -> None:
+    def _render_content(self) -> None:
         """Render the dropdown with the current matches and selection."""
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
@@ -394,7 +395,7 @@ class AutocompleteDropdown(Static):
         if not self._matches:
             return
         self._selected_index = (self._selected_index + delta) % len(self._matches)
-        self._render()
+        self._render_content()
 
     def get_selected(self) -> str | None:
         """Get the currently selected command."""
@@ -405,6 +406,7 @@ class AutocompleteDropdown(Static):
     def hide(self) -> None:
         """Hide the dropdown."""
         self._matches = []
+        self.update(" ")
         self.display = False
 
 
