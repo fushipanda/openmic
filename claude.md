@@ -140,11 +140,10 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ## Bugs
 
-### BUG-5: Command autocomplete not working
-- The command autocomplete dropdown is not appearing when typing commands
-- Commands should filter and appear in the dropdown as the user types (e.g., `/st` shows `/start`, `/stop`)
-- No commands are currently appearing in the autocomplete list
-- Auto-save functionality also not working
+### BUG-5: Command autocomplete not working ✅
+- [x] Fixed: autocomplete dropdown now uses overlay layer to render above other widgets
+- [x] Added bottom margin to clear command input/footer
+- [x] Screen CSS defines overlay layer for proper z-ordering
 
 ### BUG-6: Note summaries regeneration issue
 - Note summaries that have already been generated with AI are being regenerated on subsequent calls

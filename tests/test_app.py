@@ -275,6 +275,16 @@ class TestAutocompleteDropdown:
         dropdown._selected_index = 1
         assert dropdown.get_selected() == "/stop"
 
+    def test_overlay_layer_in_css(self):
+        """BUG-5: Autocomplete should use overlay layer to appear above other widgets."""
+        css = AutocompleteDropdown.DEFAULT_CSS
+        assert "layer: overlay" in css
+
+    def test_screen_has_overlay_layer(self):
+        """BUG-5: Screen CSS should define the overlay layer."""
+        css = OpenMicApp.CSS
+        assert "overlay" in css
+
 
 class TestUsageTracker:
     """FR-13: Session credit usage tracking."""

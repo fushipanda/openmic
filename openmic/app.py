@@ -338,10 +338,11 @@ class AutocompleteDropdown(Static):
 
     DEFAULT_CSS = """
     AutocompleteDropdown {
+        layer: overlay;
         dock: bottom;
         height: auto;
         max-height: 14;
-        margin: 0 1;
+        margin: 0 0 3 1;
         background: $surface;
         color: #e8e8e8;
         border: round $primary 50%;
@@ -586,7 +587,7 @@ class OpenMicApp(App):
     CSS = """
     Screen {
         background: $background;
-        layers: default;
+        layers: default overlay;
     }
 
     StatusBar {
