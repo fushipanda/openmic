@@ -66,7 +66,8 @@ class TestGenerateMeetingNotes:
         assert notes_path.parent == notes_dir
         assert "2025-06-15_14-30_notes.md" == notes_path.name
         assert "# Meeting Notes" in content
-        assert "Source: 2025-06-15_14-30.md" in content
+        assert "Meeting Transcript" in content
+        assert "Jun 15" in content
         assert "database migration" in content.lower() or "PostgreSQL" in content
 
     def test_notes_content_has_header(self, storage_dirs):
@@ -84,7 +85,7 @@ class TestGenerateMeetingNotes:
             content, _ = generate_meeting_notes(transcript_path)
 
         assert content.startswith("# Meeting Notes")
-        assert "Source: 2025-06-15_14-30.md" in content
+        assert "Meeting Transcript" in content
 
     def test_llm_chain_receives_transcript(self, storage_dirs):
         """The LLM chain is called with the transcript content."""

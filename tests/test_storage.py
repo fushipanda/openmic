@@ -14,6 +14,7 @@ from openmic.storage import (
     get_latest_transcript,
     list_transcripts,
     save_notes,
+    format_transcript_title,
 )
 
 
@@ -145,3 +146,42 @@ class TestSaveNotes:
         transcript_path = Path("transcripts/2025-01-01_10-00_standup.md")
         path = save_notes("content", transcript_path)
         assert path.name == "2025-01-01_10-00_standup_notes.md"
+
+
+class TestFormatTranscriptTitle:
+    """FR-20: Friendly transcript title formatting."""
+
+    def test_without_session_name(self):
+        """Title without session name uses 'Meeting Transcript'."""
+        title = format_transcript_title("2025-06-15_14-30")
+        assert "Meeting Transcript" in title
+        assert "Jun 15" in title
+        assert "2025" in title
+        assert "2:30 PM" in title
+
+    def test_with_session_name(self):
+        """Title with session name uses the session name instead of 'Meeting Transcript'."""
+        title = format_transcript_title("2025-06-15_14-30", "standup")
+        assert "standup" in title
+        assert "Meeting Transcript" not in title
+        assert "Jun 15" in title
+
+    def test_session_name_underscores_to_spaces(self):
+        """Underscores in session names are converted to spaces."""
+        title = format_transcript_title("2025-01-01_10-00", "team_standup")
+        assert "team standup" in title
+
+    def test_ordinal_suffixes(self):
+        """Day ordinal suffixes are correct (1st, 2nd, 3rd, 4th, etc.)."""
+        assert "1st" in format_transcript_title("2025-01-01_10-00")
+        assert "2nd" in format_transcript_title("2025-01-02_10-00")
+        assert "3rd" in format_transcript_title("2025-01-03_10-00")
+        assert "4th" in format_transcript_title("2025-01-04_10-00")
+        assert "11th" in format_transcript_title("2025-01-11_10-00")
+        assert "12th" in format_transcript_title("2025-01-12_10-00")
+        assert "21st" in format_transcript_title("2025-01-21_10-00")
+
+    def test_invalid_timestamp_fallback(self):
+        """Invalid timestamps fall back to the raw string."""
+        title = format_transcript_title("not-a-date")
+        assert "not-a-date" in title

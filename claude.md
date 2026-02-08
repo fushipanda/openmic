@@ -129,10 +129,10 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Notes display now renders with proper headings, bold, lists, and formatting
 - [x] Transcript viewing renders markdown formatting (headings, bold speaker names, etc.)
 
-### FR-20: Improve notes title formatting
-- Notes currently display as "Meeting Transcript - 2026-01-01_12-00"
-- Format this more nicely (don't need to put name in brackets)
-- Make the title more readable and user-friendly
+### FR-20: Improve notes title formatting ✅
+- [x] Titles now use readable format: "Meeting Transcript — Jan 1st 2026, 12:00 PM"
+- [x] Named sessions show: "standup — Jan 1st 2026, 12:00 PM" (no brackets)
+- [x] Applied to saved transcripts, renamed transcripts, and notes headers
 
 ### FR-21: Easy navigation back from transcript/notes view
 - Add a simple way to return from viewing a transcript or note (e.g., Esc key returns to picker menu)

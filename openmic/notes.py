@@ -6,7 +6,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_classic.chains import LLMChain
 
 from openmic.rag import get_llm
-from openmic.storage import get_latest_transcript, save_notes, NOTES_DIR
+from openmic.storage import get_latest_transcript, save_notes, NOTES_DIR, format_transcript_title
 
 
 NOTES_PROMPT = PromptTemplate(
@@ -72,8 +72,12 @@ def generate_meeting_notes(transcript_path: Path) -> tuple[str, Path]:
 
     notes_content = chain.run(transcript=transcript_content)
 
-    # Add header
-    full_notes = f"# Meeting Notes\n\nSource: {transcript_path.name}\n\n{notes_content}"
+    # Add header with formatted title
+    stem = transcript_path.stem
+    timestamp = stem[:16]
+    session_name = stem[17:] if len(stem) > 16 else None
+    title = format_transcript_title(timestamp, session_name)
+    full_notes = f"# Meeting Notes\n\n**{title}**\n\n{notes_content}"
 
     notes_path = save_notes(full_notes, transcript_path)
     return full_notes, notes_path

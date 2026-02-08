@@ -8,6 +8,34 @@ TRANSCRIPTS_DIR = Path("transcripts")
 NOTES_DIR = Path("notes")
 
 
+def format_transcript_title(timestamp: str, session_name: str | None = None) -> str:
+    """Format a human-readable transcript title.
+
+    Args:
+        timestamp: Timestamp string in YYYY-MM-DD_HH-MM format
+        session_name: Optional session name (underscores treated as spaces)
+
+    Returns:
+        Formatted title like "Meeting Transcript — Jan 15th 2026, 2:30 PM"
+        or "Standup — Jan 15th 2026, 2:30 PM"
+    """
+    try:
+        dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M")
+        day = dt.day
+        if 11 <= day <= 13:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+        date_str = dt.strftime(f"%b {day}{suffix} %Y, %-I:%M %p")
+    except ValueError:
+        date_str = timestamp
+
+    if session_name:
+        name = session_name.replace("_", " ").strip()
+        return f"{name} — {date_str}"
+    return f"Meeting Transcript — {date_str}"
+
+
 def ensure_dirs() -> None:
     """Create storage directories if they don't exist."""
     TRANSCRIPTS_DIR.mkdir(exist_ok=True)
@@ -34,7 +62,8 @@ def save_transcript(segments: list[dict], session_name: str | None = None) -> Pa
 
     filepath = TRANSCRIPTS_DIR / filename
 
-    lines = [f"# Meeting Transcript - {timestamp}\n\n"]
+    title = format_transcript_title(timestamp, session_name)
+    lines = [f"# {title}\n\n"]
 
     for segment in segments:
         speaker = segment.get("speaker", "Speaker")
@@ -87,7 +116,8 @@ def rename_transcript(old_path: Path, new_name: str) -> Path:
     # Update the heading inside the file too
     content = old_path.read_text()
     first_line_end = content.index("\n")
-    content = f"# Meeting Transcript - {timestamp} ({new_name})" + content[first_line_end:]
+    title = format_transcript_title(timestamp, new_name)
+    content = f"# {title}" + content[first_line_end:]
     new_path.write_text(content)
 
     if new_path != old_path:
