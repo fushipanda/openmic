@@ -44,7 +44,7 @@ from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
 from openmic.storage import save_transcript, list_transcripts, rename_transcript, NOTES_DIR
 from openmic.rag import TranscriptRAG
-from openmic.notes import generate_meeting_notes, generate_notes_for_latest
+from openmic.notes import generate_meeting_notes, generate_notes_for_latest, get_existing_notes
 
 load_dotenv()
 
@@ -901,8 +901,12 @@ class OpenMicApp(App):
 
     async def _generate_notes_for_path(self, transcript_path: Path) -> None:
         """Generate meeting notes for a specific transcript."""
+        was_cached = get_existing_notes(transcript_path) is not None
         muted = _muted_color(self.current_theme)
-        processing = Text("Generating meeting notes...", style=f"italic {muted}")
+        if was_cached:
+            processing = Text("Loading saved notes...", style=f"italic {muted}")
+        else:
+            processing = Text("Generating meeting notes...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
         self.transcript_pane._text = ""
         self.transcript_pane.update(processing)
@@ -912,8 +916,9 @@ class OpenMicApp(App):
                 lambda: generate_meeting_notes(transcript_path),
             )
             notes_content, notes_path = result
-            self.usage_tracker.add_llm_call()
-            self.status_bar.refresh_usage()
+            if not was_cached:
+                self.usage_tracker.add_llm_call()
+                self.status_bar.refresh_usage()
             self.transcript_pane.set_markdown(f"{notes_content}\n\n---\n\n*Saved to: {notes_path}*\n")
             self._viewing = True
         except Exception as e:

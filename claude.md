@@ -145,10 +145,10 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Added bottom margin to clear command input/footer
 - [x] Screen CSS defines overlay layer for proper z-ordering
 
-### BUG-6: Note summaries regeneration issue
-- Note summaries that have already been generated with AI are being regenerated on subsequent calls
-- Should save and reuse the existing meeting summary instead of making new LLM calls
-- Only regenerate if explicitly requested or if the transcript has changed
+### BUG-6: Note summaries regeneration issue ✅
+- [x] App now checks for cached notes before calling LLM (via get_existing_notes)
+- [x] Usage tracker only counts LLM calls when notes are actually generated (not cached)
+- [x] UI shows "Loading saved notes..." for cached notes vs "Generating..." for new
 
 ---
 
