@@ -180,7 +180,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - No need to show percentage unless total remaining credits can be fetched from the API
 - Reset counters on app start
 
-### FR-14: Command autocomplete dropdown
+### FR-14: Command autocomplete dropdown ✅
 - When typing a `/` command, show a dropdown popup above the command bar with matching commands
 - Filter as the user types: e.g. typing `/st` shows `/start`, `/stop` etc.
 - Results sorted alphabetically

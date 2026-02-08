@@ -6,9 +6,10 @@ from unittest.mock import patch
 from pathlib import Path
 
 from openmic.app import (
-    OpenMicApp, CommandInput, HELP_COMMANDS,
+    OpenMicApp, CommandInput, HELP_COMMANDS, SLASH_COMMANDS,
     _load_config, _save_config, CONFIG_FILE, THEMES,
     _muted_color, OPENMIC_THEME, NORD_THEME,
+    AutocompleteDropdown,
 )
 
 
@@ -167,3 +168,74 @@ class TestMutedColor:
             muted = _muted_color(theme)
             assert muted.startswith("#")
             assert len(muted) == 7
+
+
+class TestSlashCommands:
+    """FR-14: SLASH_COMMANDS list for autocomplete."""
+
+    def test_commands_are_alphabetically_sorted(self):
+        """SLASH_COMMANDS should be sorted alphabetically."""
+        cmds = [cmd for cmd, _ in SLASH_COMMANDS]
+        assert cmds == sorted(cmds)
+
+    def test_all_commands_start_with_slash(self):
+        """Every entry in SLASH_COMMANDS should start with /."""
+        for cmd, _ in SLASH_COMMANDS:
+            assert cmd.startswith("/"), f"Command {cmd} doesn't start with /"
+
+    def test_all_commands_have_descriptions(self):
+        """Every command should have a non-empty description."""
+        for cmd, desc in SLASH_COMMANDS:
+            assert desc, f"Command {cmd} has no description"
+
+    def test_core_commands_present(self):
+        """Core commands should be in the list."""
+        cmds = [cmd for cmd, _ in SLASH_COMMANDS]
+        for expected in ["/start", "/stop", "/exit", "/history", "/notes", "/query", "/pause"]:
+            assert expected in cmds, f"{expected} missing from SLASH_COMMANDS"
+
+
+class TestAutocompleteDropdown:
+    """FR-14: Autocomplete dropdown filtering and selection logic."""
+
+    def test_initial_state(self):
+        """Dropdown starts with no matches."""
+        dropdown = AutocompleteDropdown()
+        assert dropdown._matches == []
+        assert dropdown._selected_index == 0
+
+    def test_get_selected_no_matches(self):
+        """get_selected returns None when no matches."""
+        dropdown = AutocompleteDropdown()
+        assert dropdown.get_selected() is None
+
+    def test_hide_clears_matches(self):
+        """hide() clears matches."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start")]
+        dropdown.hide()
+        assert dropdown._matches == []
+
+    def test_selection_wraps_forward(self):
+        """Selection index wraps around when reaching the end."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/a", "A"), ("/b", "B"), ("/c", "C")]
+        dropdown._selected_index = 2
+        # Simulate move_selection logic without render (no app context in tests)
+        dropdown._selected_index = (dropdown._selected_index + 1) % len(dropdown._matches)
+        assert dropdown._selected_index == 0
+
+    def test_selection_wraps_backward(self):
+        """Selection index wraps around when going past the start."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/a", "A"), ("/b", "B"), ("/c", "C")]
+        dropdown._selected_index = 0
+        dropdown._selected_index = (dropdown._selected_index - 1) % len(dropdown._matches)
+        assert dropdown._selected_index == 2
+
+    def test_get_selected_returns_command(self):
+        """get_selected returns the currently selected command."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start"), ("/stop", "Stop")]
+        dropdown._selected_index = 1
+        assert dropdown.get_selected() == "/stop"

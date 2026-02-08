@@ -225,6 +225,20 @@ class CommandInput(Input):
         super().__init__(placeholder="/start · /stop · /history · /query · /notes")
 
 
+SLASH_COMMANDS = [
+    ("/exit", "Quit OpenMic"),
+    ("/help", "Show help"),
+    ("/history", "List saved transcripts"),
+    ("/name", "Rename the latest transcript"),
+    ("/notes", "Generate structured meeting notes"),
+    ("/pause", "Pause recording (resume with /start)"),
+    ("/query", "Ask a question about your transcripts"),
+    ("/start", "Start recording"),
+    ("/stop", "Stop recording and run batch transcription"),
+    ("/transcript", "View transcript by number or name"),
+    ("/verbose", "Toggle debug output"),
+]
+
 HELP_COMMANDS = [
     ("/start [name]", "Start recording (optionally with session name)"),
     ("/stop [name]", "Stop recording and run batch transcription"),
@@ -242,6 +256,87 @@ HELP_COMMANDS = [
     ("Ctrl+C", "Quit"),
     ("Ctrl+?", "Show this help"),
 ]
+
+
+class AutocompleteDropdown(Static):
+    """Dropdown popup showing matching commands above the command input."""
+
+    DEFAULT_CSS = """
+    AutocompleteDropdown {
+        dock: bottom;
+        height: auto;
+        max-height: 14;
+        margin: 0 1;
+        background: $surface;
+        border: round $primary 50%;
+        padding: 0 1;
+        display: none;
+        layer: autocomplete;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__("")
+        self._matches: list[tuple[str, str]] = []
+        self._selected_index: int = 0
+
+    def update_matches(self, query: str) -> None:
+        """Filter commands matching the query and update the display."""
+        if not query.startswith("/") or len(query) < 1:
+            self._matches = []
+            self.display = False
+            return
+
+        search = query.lower()
+        self._matches = [
+            (cmd, desc) for cmd, desc in SLASH_COMMANDS
+            if cmd.startswith(search)
+        ]
+        self._selected_index = 0
+
+        if not self._matches:
+            self.display = False
+            return
+
+        self.display = True
+        self._render()
+
+    def _render(self) -> None:
+        """Render the dropdown with the current matches and selection."""
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+        fg = theme.foreground or "#e8e8e8"
+        muted = _muted_color(theme)
+
+        text = Text()
+        for i, (cmd, desc) in enumerate(self._matches):
+            if i == self._selected_index:
+                text.append(f"  {cmd:<16}", style=f"bold {primary}")
+                text.append(f" {desc}", style=fg)
+            else:
+                text.append(f"  {cmd:<16}", style=fg)
+                text.append(f" {desc}", style=muted)
+            if i < len(self._matches) - 1:
+                text.append("\n")
+        self.update(text)
+
+    def move_selection(self, delta: int) -> None:
+        """Move the selection up or down."""
+        if not self._matches:
+            return
+        self._selected_index = (self._selected_index + delta) % len(self._matches)
+        self._render()
+
+    def get_selected(self) -> str | None:
+        """Get the currently selected command."""
+        if self._matches and 0 <= self._selected_index < len(self._matches):
+            return self._matches[self._selected_index][0]
+        return None
+
+    def hide(self) -> None:
+        """Hide the dropdown."""
+        self._matches = []
+        self.display = False
 
 
 class HelpScreen(ModalScreen):
@@ -418,6 +513,7 @@ class OpenMicApp(App):
     CSS = """
     Screen {
         background: $background;
+        layers: default autocomplete;
     }
 
     StatusBar {
@@ -473,6 +569,7 @@ class OpenMicApp(App):
         self.status_bar = StatusBar()
         self.transcript_pane = TranscriptPane()
         self.command_input = CommandInput()
+        self.autocomplete = AutocompleteDropdown()
         self.audio_recorder = AudioRecorder(
             output_dir=Path("."),
             on_audio_chunk=self._on_audio_chunk,
@@ -495,6 +592,7 @@ class OpenMicApp(App):
     def compose(self) -> ComposeResult:
         yield self.status_bar
         yield Container(self.transcript_pane)
+        yield self.autocomplete
         yield self.command_input
         yield Footer()
 
@@ -800,9 +898,43 @@ class OpenMicApp(App):
         self.command_input.placeholder = "/start · /stop · /history · /query · /notes"
         self._awaiting_session_name = False
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Update autocomplete dropdown as the user types."""
+        self.autocomplete.update_matches(event.value.strip())
+
+    def on_key(self, event) -> None:
+        """Handle keyboard events for autocomplete navigation."""
+        if not self.autocomplete._matches:
+            return
+        if event.key == "up":
+            self.autocomplete.move_selection(-1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self.autocomplete.move_selection(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "escape":
+            self.autocomplete.hide()
+            event.prevent_default()
+            event.stop()
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
-        command = event.value.strip()
+        # If autocomplete is showing and typed text is a partial match,
+        # fill in the selected command instead of executing
+        typed = event.value.strip()
+        selected = self.autocomplete.get_selected()
+        if selected and typed and typed != selected and not any(
+            typed == cmd for cmd, _ in SLASH_COMMANDS
+        ):
+            self.command_input.value = selected + " "
+            self.command_input.cursor_position = len(self.command_input.value)
+            self.autocomplete.hide()
+            return
+
+        self.autocomplete.hide()
+        command = typed
         self.command_input.value = ""
 
         # Handle session naming prompt
