@@ -209,7 +209,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - Same issue with the help menu popup
 - Text colors should contrast properly with the popup background across all themes
 
-### BUG-3: Note summaries are regenerated unnecessarily
+### BUG-3: Note summaries are regenerated unnecessarily ✅
 - If `/notes` has already been run for a transcript and a summary exists in `notes/`, it should not regenerate
 - Load and display the existing saved summary instead of making another LLM call
 - Only regenerate if explicitly requested (or if the transcript has changed)

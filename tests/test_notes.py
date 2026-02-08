@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from openmic.notes import generate_meeting_notes, generate_notes_for_latest, NOTES_PROMPT
+from openmic.notes import generate_meeting_notes, generate_notes_for_latest, get_existing_notes, NOTES_PROMPT
 
 
 @pytest.fixture
@@ -17,6 +17,7 @@ def storage_dirs(tmp_path, monkeypatch):
     notes.mkdir()
     monkeypatch.setattr("openmic.storage.TRANSCRIPTS_DIR", transcripts)
     monkeypatch.setattr("openmic.storage.NOTES_DIR", notes)
+    monkeypatch.setattr("openmic.notes.NOTES_DIR", notes)
     monkeypatch.setattr("openmic.notes.get_latest_transcript",
                         lambda: _get_latest(transcripts))
     return transcripts, notes
@@ -131,6 +132,75 @@ class TestGenerateNotesForLatest:
         content, path = result
         assert "# Meeting Notes" in content
         assert path.name == "2025-12-31_23-59_notes.md"
+
+
+class TestNotesCaching:
+    """BUG-3: Notes should not be regenerated if they already exist."""
+
+    def test_returns_cached_notes_when_exist(self, storage_dirs):
+        """If notes already exist for a transcript, return them without LLM call."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
+
+        cached_content = "# Meeting Notes\n\nCached notes content"
+        notes_path = notes_dir / "2025-06-15_14-30_notes.md"
+        notes_path.write_text(cached_content)
+
+        with patch("openmic.notes.get_llm") as mock_llm, \
+             patch("openmic.notes.LLMChain") as mock_chain_cls:
+            content, path = generate_meeting_notes(transcript_path)
+
+        # LLM should NOT be called
+        mock_llm.assert_not_called()
+        mock_chain_cls.assert_not_called()
+        assert content == cached_content
+        assert path == notes_path
+
+    def test_generates_when_no_cache(self, storage_dirs):
+        """If no cached notes exist, generate them via LLM."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
+
+        mock_chain = MagicMock()
+        mock_chain.run.return_value = "Generated notes"
+
+        with patch("openmic.notes.get_llm"), \
+             patch("openmic.notes.LLMChain", return_value=mock_chain):
+            content, path = generate_meeting_notes(transcript_path)
+
+        # LLM should be called
+        mock_chain.run.assert_called_once()
+        assert "# Meeting Notes" in content
+
+    def test_get_existing_notes_found(self, storage_dirs):
+        """get_existing_notes returns content when notes file exists."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("transcript")
+
+        notes_path = notes_dir / "2025-06-15_14-30_notes.md"
+        notes_path.write_text("cached notes")
+
+        result = get_existing_notes(transcript_path)
+        assert result is not None
+        content, path = result
+        assert content == "cached notes"
+        assert path == notes_path
+
+    def test_get_existing_notes_not_found(self, storage_dirs):
+        """get_existing_notes returns None when no notes file exists."""
+        transcripts_dir, _ = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("transcript")
+
+        result = get_existing_notes(transcript_path)
+        assert result is None
 
 
 class TestNotesPrompt:

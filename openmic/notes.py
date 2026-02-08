@@ -6,7 +6,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_classic.chains import LLMChain
 
 from openmic.rag import get_llm
-from openmic.storage import get_latest_transcript, save_notes
+from openmic.storage import get_latest_transcript, save_notes, NOTES_DIR
 
 
 NOTES_PROMPT = PromptTemplate(
@@ -38,8 +38,22 @@ Generate the meeting notes now:"""
 )
 
 
+def get_existing_notes(transcript_path: Path) -> tuple[str, Path] | None:
+    """Check if notes already exist for a transcript.
+
+    Returns:
+        Tuple of (notes content, notes path) if found, None otherwise.
+    """
+    notes_path = NOTES_DIR / (transcript_path.stem + "_notes.md")
+    if notes_path.exists():
+        return notes_path.read_text(), notes_path
+    return None
+
+
 def generate_meeting_notes(transcript_path: Path) -> tuple[str, Path]:
     """Generate structured meeting notes from a transcript.
+
+    Returns cached notes if they already exist for this transcript.
 
     Args:
         transcript_path: Path to the transcript markdown file
@@ -47,6 +61,10 @@ def generate_meeting_notes(transcript_path: Path) -> tuple[str, Path]:
     Returns:
         Tuple of (generated notes content, path to saved notes file)
     """
+    existing = get_existing_notes(transcript_path)
+    if existing is not None:
+        return existing
+
     transcript_content = transcript_path.read_text()
 
     llm = get_llm()
