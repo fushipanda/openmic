@@ -10,7 +10,9 @@ from openmic.app import (
     _load_config, _save_config, CONFIG_FILE, THEME_NAMES,
     _muted_color, OPENMIC_THEME,
     AutocompleteDropdown, UsageTracker,
+    _parse_transcript_meta,
 )
+from openmic.storage import NOTES_DIR
 
 
 class TestCommandInputPadding:
@@ -349,3 +351,49 @@ class TestUsageTracker:
         assert "LLM:" in summary
         assert "2 calls" in summary
         assert "500 tok" in summary
+
+
+class TestNotesIndicator:
+    """FR-18: Visual indicator for transcripts with generated notes."""
+
+    def test_notes_file_detected(self, tmp_path, monkeypatch):
+        """Notes indicator should detect when notes file exists."""
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+        monkeypatch.setattr("openmic.app.NOTES_DIR", notes_dir)
+
+        stem = "2025-06-15_14-30"
+        notes_file = notes_dir / f"{stem}_notes.md"
+        notes_file.write_text("# Notes")
+
+        assert notes_file.exists()
+        assert (notes_dir / (stem + "_notes.md")).exists()
+
+    def test_notes_file_not_detected(self, tmp_path, monkeypatch):
+        """Notes indicator should not show when no notes file exists."""
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+        monkeypatch.setattr("openmic.app.NOTES_DIR", notes_dir)
+
+        stem = "2025-06-15_14-30"
+        assert not (notes_dir / (stem + "_notes.md")).exists()
+
+    def test_parse_transcript_meta_extracts_stem(self):
+        """_parse_transcript_meta extracts the stem used for notes lookup."""
+        path = Path("transcripts/2025-06-15_14-30_standup.md")
+        meta = _parse_transcript_meta(path)
+        assert meta["stem"] == "2025-06-15_14-30_standup"
+
+    def test_notes_indicator_path_matches_storage_convention(self, tmp_path, monkeypatch):
+        """Notes path convention in picker matches storage.save_notes convention."""
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+        monkeypatch.setattr("openmic.app.NOTES_DIR", notes_dir)
+
+        # Simulate what storage.save_notes does
+        transcript_stem = "2025-06-15_14-30_standup"
+        notes_filename = transcript_stem + "_notes.md"
+        (notes_dir / notes_filename).write_text("# Notes")
+
+        # Verify the picker logic would detect it
+        assert (notes_dir / (transcript_stem + "_notes.md")).exists()

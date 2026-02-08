@@ -120,9 +120,9 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] All themes use Textual's Theme API — title/banner colors derive from current_theme
 - [x] Theme choice persists through sessions via settings.json
 
-### FR-18: Visual indicator for generated notes
-- Add a visual indicator (e.g., star symbol ⭐) in the transcript picker to show which transcripts have notes already generated
-- This helps users quickly identify which transcripts have been processed
+### FR-18: Visual indicator for generated notes ✅
+- [x] Add green `*` indicator in transcript picker for transcripts with existing notes
+- [x] Indicator checks notes/ directory using the same naming convention as storage
 
 ### FR-19: Rich text formatting for markdown
 - Currently headings show as `# Heading` and bold text shows as `**text**`

@@ -41,7 +41,7 @@ def _save_config(config: dict) -> None:
 
 from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
-from openmic.storage import save_transcript, list_transcripts, rename_transcript
+from openmic.storage import save_transcript, list_transcripts, rename_transcript, NOTES_DIR
 from openmic.rag import TranscriptRAG
 from openmic.notes import generate_meeting_notes, generate_notes_for_latest
 
@@ -550,10 +550,15 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
 
                 name = meta["name"] or "Untitled"
                 time_str = dt.strftime("%-I:%M %p")
+                has_notes = (NOTES_DIR / (meta["stem"] + "_notes.md")).exists()
+                notes_indicator = " *" if has_notes else ""
                 # Build a formatted line: name left, time right
                 label = Text()
                 label.append(f"  {name}", style=f"bold {theme.foreground or '#e8e8e8'}")
-                pad = max(1, 50 - len(name) - len(time_str))
+                if has_notes:
+                    label.append(" *", style=f"bold {theme.success or '#2ed573'}")
+                display_len = len(name) + len(notes_indicator) + len(time_str)
+                pad = max(1, 50 - display_len)
                 label.append(" " * pad)
                 label.append(time_str, style=_muted_color(theme))
 
