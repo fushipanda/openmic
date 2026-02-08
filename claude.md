@@ -193,7 +193,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - Add `Ctrl+?` as the keyboard shortcut to toggle the help menu
 - Help menu behaviour otherwise unchanged
 
-### FR-16: Theme auto-save and persistence
+### FR-16: Theme auto-save and persistence ✅
 - When the user changes theme, automatically save the selection
 - Persist theme choice across sessions (via `~/.config/openmic/settings.json`)
 - On app start, load and apply the saved theme

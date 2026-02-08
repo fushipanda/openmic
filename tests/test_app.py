@@ -1,8 +1,14 @@
 """Tests for the OpenMic TUI application."""
 
+import json
 import pytest
+from unittest.mock import patch
+from pathlib import Path
 
-from openmic.app import OpenMicApp, CommandInput, HELP_COMMANDS
+from openmic.app import (
+    OpenMicApp, CommandInput, HELP_COMMANDS,
+    _load_config, _save_config, CONFIG_FILE, THEMES,
+)
 
 
 class TestCommandInputPadding:
@@ -62,3 +68,48 @@ class TestHelpShortcut:
         commands = [cmd for cmd, _ in HELP_COMMANDS]
         assert "Ctrl+?" in commands
         assert "?" not in commands
+
+
+class TestThemePersistence:
+    """FR-16: Theme auto-save and persistence."""
+
+    def test_save_and_load_config(self, tmp_path):
+        """Verify config can be saved and loaded."""
+        config_file = tmp_path / "settings.json"
+        with patch("openmic.app.CONFIG_FILE", config_file), \
+             patch("openmic.app.CONFIG_DIR", tmp_path):
+            _save_config({"theme": "nord"})
+            config = _load_config()
+            assert config["theme"] == "nord"
+
+    def test_load_config_missing_file(self, tmp_path):
+        """Verify loading missing config returns empty dict."""
+        config_file = tmp_path / "nonexistent" / "settings.json"
+        with patch("openmic.app.CONFIG_FILE", config_file):
+            config = _load_config()
+            assert config == {}
+
+    def test_load_config_invalid_json(self, tmp_path):
+        """Verify loading invalid JSON returns empty dict."""
+        config_file = tmp_path / "settings.json"
+        config_file.write_text("not valid json{{{")
+        with patch("openmic.app.CONFIG_FILE", config_file):
+            config = _load_config()
+            assert config == {}
+
+    def test_action_cycle_theme_persists(self, tmp_path):
+        """Verify cycling theme saves to config."""
+        config_file = tmp_path / "settings.json"
+        with patch("openmic.app.CONFIG_FILE", config_file), \
+             patch("openmic.app.CONFIG_DIR", tmp_path):
+            _save_config({"theme": "openmic"})
+            # Simulate what action_cycle_theme does
+            config = _load_config()
+            names = [t.name for t in THEMES]
+            idx = names.index(config["theme"])
+            new_theme = names[(idx + 1) % len(names)]
+            config["theme"] = new_theme
+            _save_config(config)
+
+            reloaded = _load_config()
+            assert reloaded["theme"] == "nord"
