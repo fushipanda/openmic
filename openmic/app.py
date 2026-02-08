@@ -226,7 +226,7 @@ HELP_COMMANDS = [
     ("Ctrl+R", "Toggle recording on/off"),
     ("Ctrl+T", "Cycle theme"),
     ("Ctrl+C", "Quit"),
-    ("?", "Show this help"),
+    ("Ctrl+?", "Show this help"),
 ]
 
 
@@ -235,7 +235,6 @@ class HelpScreen(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
-        Binding("question_mark", "dismiss", "Close"),
     ]
 
     DEFAULT_CSS = """
@@ -446,7 +445,7 @@ class OpenMicApp(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+r", "toggle_recording", "Record"),
         Binding("ctrl+t", "cycle_theme", "Theme", show=False),
-        Binding("question_mark", "show_help", "Help", show=False),
+        Binding("ctrl+question_mark", "show_help", "Help", show=False),
     ]
 
     def __init__(self) -> None:
@@ -853,7 +852,7 @@ class OpenMicApp(App):
                 self.transcript_pane.append_text("\nUsage: /transcript <name or number>\n")
         elif command == "/exit":
             self.exit()
-        elif command in ("/help", "?"):
+        elif command == "/help":
             self.action_show_help()
         elif command == "/verbose":
             self._verbose = not self._verbose

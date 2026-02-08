@@ -42,3 +42,23 @@ class TestExitCommand:
                 break
         else:
             pytest.fail("/exit not found in HELP_COMMANDS")
+
+
+class TestHelpShortcut:
+    """FR-15: Help should use Ctrl+? instead of bare ?."""
+
+    def test_ctrl_question_mark_binding_exists(self):
+        """Verify Ctrl+? binding is registered."""
+        binding_keys = [b.key for b in OpenMicApp.BINDINGS]
+        assert "ctrl+question_mark" in binding_keys
+
+    def test_bare_question_mark_binding_removed(self):
+        """Verify bare ? binding is no longer registered."""
+        binding_keys = [b.key for b in OpenMicApp.BINDINGS]
+        assert "question_mark" not in binding_keys
+
+    def test_help_commands_shows_ctrl_question_mark(self):
+        """Verify help commands list shows Ctrl+? not bare ?."""
+        commands = [cmd for cmd, _ in HELP_COMMANDS]
+        assert "Ctrl+?" in commands
+        assert "?" not in commands

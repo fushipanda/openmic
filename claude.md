@@ -188,7 +188,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - Arrow keys to navigate, Esc to dismiss
 - Each entry shows command name and brief description
 
-### FR-15: Replace `?` help with `Ctrl+?` keyboard shortcut
+### FR-15: Replace `?` help with `Ctrl+?` keyboard shortcut ✅
 - Remove the `?` key binding for help
 - Add `Ctrl+?` as the keyboard shortcut to toggle the help menu
 - Help menu behaviour otherwise unchanged
