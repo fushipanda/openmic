@@ -168,8 +168,55 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 ### FR-11 Shadow on title text ✅
 - Openmic text should have a clear shadow down and left behind the text, ensure the shadow is aligned near the text and colours match theme
 
+### FR-12: `/exit` command
+- Typing `/exit` in the command input exits the application cleanly
+- Should behave the same as `Ctrl+C` / normal quit
+
+### FR-13: Session credit usage display
+- Show ElevenLabs and LLM credit/token usage for the current session
+- Display in the top-right corner of the TUI
+- Track ElevenLabs usage (transcription time/characters consumed)
+- Track LLM token usage (Anthropic/OpenAI tokens for RAG queries and notes generation)
+- No need to show percentage unless total remaining credits can be fetched from the API
+- Reset counters on app start
+
+### FR-14: Command autocomplete dropdown
+- When typing a `/` command, show a dropdown popup above the command bar with matching commands
+- Filter as the user types: e.g. typing `/st` shows `/start`, `/stop` etc.
+- Results sorted alphabetically
+- Pressing Enter selects the top match
+- Arrow keys to navigate, Esc to dismiss
+- Each entry shows command name and brief description
+
+### FR-15: Replace `?` help with `Ctrl+?` keyboard shortcut
+- Remove the `?` key binding for help
+- Add `Ctrl+?` as the keyboard shortcut to toggle the help menu
+- Help menu behaviour otherwise unchanged
+
+### FR-16: Theme auto-save and persistence
+- When the user changes theme, automatically save the selection
+- Persist theme choice across sessions (via `~/.config/openmic/settings.json`)
+- On app start, load and apply the saved theme
+
 ## Bugs
 
+### BUG-1: Opening text doesn't match theme
+- The initial/opening text displayed when the app launches does not use the current theme colors
+- Should respect the active theme on startup
+
+### BUG-2: History popup and help menu text blends with background
+- Text in the history popup (transcript picker) blends into the background depending on the theme
+- Same issue with the help menu popup
+- Text colors should contrast properly with the popup background across all themes
+
+### BUG-3: Note summaries are regenerated unnecessarily
+- If `/notes` has already been run for a transcript and a summary exists in `notes/`, it should not regenerate
+- Load and display the existing saved summary instead of making another LLM call
+- Only regenerate if explicitly requested (or if the transcript has changed)
+
+### BUG-4: Command bar lacks padding ✅
+- All commands typed in the command bar start at the very left edge, touching the border
+- Add left padding/space in the command input so text doesn't touch the border
 
 ---
 

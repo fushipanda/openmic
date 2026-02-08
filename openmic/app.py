@@ -433,6 +433,7 @@ class OpenMicApp(App):
         dock: bottom;
         margin: 1;
         border: tall $primary 50%;
+        padding: 0 1;
     }
 
     CommandInput:focus {
