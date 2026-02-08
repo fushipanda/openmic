@@ -134,9 +134,9 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Named sessions show: "standup — Jan 1st 2026, 12:00 PM" (no brackets)
 - [x] Applied to saved transcripts, renamed transcripts, and notes headers
 
-### FR-21: Easy navigation back from transcript/notes view
-- Add a simple way to return from viewing a transcript or note (e.g., Esc key returns to picker menu)
-- Should work consistently across all viewing contexts
+### FR-21: Easy navigation back from transcript/notes view ✅
+- [x] Esc key returns to home screen (banner) when viewing a transcript, notes, or query results
+- [x] Documented in help screen shortcuts
 
 ## Bugs
 

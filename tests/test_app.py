@@ -423,3 +423,28 @@ class TestMarkdownRendering:
         """Rich Markdown should parse list syntax."""
         md = RichMarkdown("- item 1\n- item 2\n- item 3")
         assert md is not None
+
+
+class TestEscNavigation:
+    """FR-21: Esc key returns from viewing to home screen."""
+
+    def test_escape_binding_exists(self):
+        """Escape binding should be registered."""
+        binding_keys = [b.key for b in OpenMicApp.BINDINGS]
+        assert "escape" in binding_keys
+
+    def test_escape_binding_is_hidden(self):
+        """Escape binding should not show in the footer."""
+        for b in OpenMicApp.BINDINGS:
+            if b.key == "escape":
+                assert not b.show
+                break
+
+    def test_esc_in_help_commands(self):
+        """Esc shortcut should be documented in help."""
+        cmds = [cmd for cmd, _ in HELP_COMMANDS]
+        assert "Esc" in cmds
+
+    def test_go_back_action_exists(self):
+        """OpenMicApp should have an action_go_back method."""
+        assert hasattr(OpenMicApp, "action_go_back")

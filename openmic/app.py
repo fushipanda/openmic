@@ -327,6 +327,7 @@ HELP_COMMANDS = [
     ("", ""),
     ("Ctrl+R", "Toggle recording on/off"),
     ("Ctrl+T", "Cycle theme"),
+    ("Esc", "Return to home screen"),
     ("Ctrl+C", "Quit"),
     ("Ctrl+?", "Show this help"),
 ]
@@ -628,6 +629,7 @@ class OpenMicApp(App):
         Binding("ctrl+r", "toggle_recording", "Record"),
         Binding("ctrl+t", "cycle_theme", "Theme", show=False),
         Binding("ctrl+question_mark", "show_help", "Help", show=False),
+        Binding("escape", "go_back", "Back", show=False),
     ]
 
     def __init__(self) -> None:
@@ -659,6 +661,7 @@ class OpenMicApp(App):
         self.rag = TranscriptRAG()
         self._session_name: str | None = None
         self._awaiting_session_name = False
+        self._viewing = False  # True when viewing a transcript/notes (Esc returns to home)
 
     def compose(self) -> ComposeResult:
         yield self.status_bar
@@ -684,6 +687,12 @@ class OpenMicApp(App):
         """Show the help popup."""
         self.push_screen(HelpScreen())
 
+    def action_go_back(self) -> None:
+        """Return to home screen when viewing a transcript or notes."""
+        if self._viewing:
+            self._viewing = False
+            self.transcript_pane.clear()
+
     async def action_toggle_recording(self) -> None:
         """Toggle recording state."""
         if self.status_bar.paused:
@@ -699,6 +708,7 @@ class OpenMicApp(App):
         if self.audio_recorder.is_paused:
             await self._resume_recording()
             return
+        self._viewing = False
         self._live_text = ""
         self._current_wav_path = self.audio_recorder.start()
         await self.transcriber.connect()
@@ -868,6 +878,7 @@ class OpenMicApp(App):
             result.append("A: ", style=f"bold {primary}")
             result.append(f"{answer}\n")
             self.transcript_pane.update(result)
+            self._viewing = True
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
 
@@ -903,6 +914,7 @@ class OpenMicApp(App):
             self.usage_tracker.add_llm_call()
             self.status_bar.refresh_usage()
             self.transcript_pane.set_markdown(f"{notes_content}\n\n---\n\n*Saved to: {notes_path}*\n")
+            self._viewing = True
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError generating notes: {e}\n")
 
@@ -924,6 +936,7 @@ class OpenMicApp(App):
         content = target.read_text()
         footer = f"\n---\n\n*{target}*\n"
         self.transcript_pane.set_markdown(content + footer)
+        self._viewing = True
 
     def _view_transcript(self, identifier: str) -> None:
         """View a specific transcript by number or name."""
