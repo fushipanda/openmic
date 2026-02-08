@@ -99,28 +99,93 @@ def _muted_color(theme) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-class StatusBar(Static):
-    """Status bar showing recording state."""
+class UsageTracker:
+    """Tracks ElevenLabs and LLM usage for the current session."""
+
+    # ElevenLabs realtime sends 16kHz 16-bit mono audio in chunks
+    SAMPLE_RATE = 16000
+    BYTES_PER_SAMPLE = 2
 
     def __init__(self) -> None:
+        self.audio_bytes_sent: int = 0
+        self.llm_calls: int = 0
+        self.llm_tokens: int = 0
+
+    def add_audio_bytes(self, n: int) -> None:
+        self.audio_bytes_sent += n
+
+    def add_llm_call(self, tokens: int = 0) -> None:
+        self.llm_calls += 1
+        self.llm_tokens += tokens
+
+    @property
+    def audio_seconds(self) -> float:
+        samples = self.audio_bytes_sent / self.BYTES_PER_SAMPLE
+        return samples / self.SAMPLE_RATE
+
+    def format_audio(self) -> str:
+        secs = self.audio_seconds
+        if secs < 60:
+            return f"{secs:.0f}s"
+        mins = secs / 60
+        return f"{mins:.1f}m"
+
+    def summary(self) -> str:
+        parts = []
+        if self.audio_bytes_sent > 0:
+            parts.append(f"Audio: {self.format_audio()}")
+        if self.llm_calls > 0:
+            token_str = f" ({self.llm_tokens} tok)" if self.llm_tokens else ""
+            parts.append(f"LLM: {self.llm_calls} call{'s' if self.llm_calls != 1 else ''}{token_str}")
+        return " · ".join(parts) if parts else ""
+
+
+class StatusBar(Static):
+    """Status bar showing recording state and session usage."""
+
+    def __init__(self, usage_tracker: UsageTracker | None = None) -> None:
         super().__init__("○ IDLE")
         self.recording = False
         self.paused = False
+        self._usage_tracker = usage_tracker
 
     def on_mount(self) -> None:
         self._update_display()
 
     def _update_display(self) -> None:
         theme = self.app.current_theme
+        muted = _muted_color(theme)
+
+        # Left side: recording state
         if self.paused:
             warning = theme.accent or "#ffaa00"
-            text = Text("⏸ PAUSED", style=f"bold {warning}")
+            status = Text("⏸ PAUSED", style=f"bold {warning}")
         elif self.recording:
-            text = Text("◉ RECORDING", style=f"bold {theme.error}")
+            status = Text("◉ RECORDING", style=f"bold {theme.error}")
         else:
-            muted = _muted_color(theme)
-            text = Text("○ IDLE", style=muted)
-        self.update(text)
+            status = Text("○ IDLE", style=muted)
+
+        # Right side: usage info
+        usage_str = ""
+        if self._usage_tracker:
+            usage_str = self._usage_tracker.summary()
+
+        if usage_str:
+            # Build a line with status centered/left and usage right-aligned
+            try:
+                width = self.size.width - 2  # account for padding
+            except Exception:
+                width = 80
+            status_len = len(status.plain)
+            usage_len = len(usage_str)
+            padding = max(1, width - status_len - usage_len)
+            text = Text()
+            text.append(status)
+            text.append(" " * padding)
+            text.append(usage_str, style=muted)
+            self.update(text)
+        else:
+            self.update(status)
 
     def set_recording(self, recording: bool) -> None:
         self.recording = recording
@@ -129,6 +194,10 @@ class StatusBar(Static):
 
     def set_paused(self, paused: bool) -> None:
         self.paused = paused
+        self._update_display()
+
+    def refresh_usage(self) -> None:
+        """Refresh the usage display."""
         self._update_display()
 
 
@@ -566,7 +635,8 @@ class OpenMicApp(App):
         saved_theme = config.get("theme")
         theme_names = [t.name for t in THEMES]
         self.theme = saved_theme if saved_theme in theme_names else THEMES[0].name
-        self.status_bar = StatusBar()
+        self.usage_tracker = UsageTracker()
+        self.status_bar = StatusBar(usage_tracker=self.usage_tracker)
         self.transcript_pane = TranscriptPane()
         self.command_input = CommandInput()
         self.autocomplete = AutocompleteDropdown()
@@ -673,7 +743,9 @@ class OpenMicApp(App):
 
     def _on_audio_chunk(self, audio_bytes: bytes) -> None:
         """Handle audio chunk from recorder."""
+        self.usage_tracker.add_audio_bytes(len(audio_bytes))
         self.transcriber.send_audio_chunk(audio_bytes)
+        self.status_bar.refresh_usage()
 
     def _on_partial_transcript(self, text: str) -> None:
         """Handle partial transcript update."""
@@ -788,6 +860,8 @@ class OpenMicApp(App):
                 None,
                 lambda: self.rag.query_file(question, transcript_path),
             )
+            self.usage_tracker.add_llm_call()
+            self.status_bar.refresh_usage()
             result = Text()
             result.append("Q: ", style=f"bold {primary}")
             result.append(f"{question}\n\n")
@@ -826,6 +900,8 @@ class OpenMicApp(App):
                 lambda: generate_meeting_notes(transcript_path),
             )
             notes_content, notes_path = result
+            self.usage_tracker.add_llm_call()
+            self.status_bar.refresh_usage()
             self.transcript_pane.set_text(f"{notes_content}\n\nSaved to: {notes_path}\n")
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError generating notes: {e}\n")

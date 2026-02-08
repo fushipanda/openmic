@@ -172,7 +172,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - Typing `/exit` in the command input exits the application cleanly
 - Should behave the same as `Ctrl+C` / normal quit
 
-### FR-13: Session credit usage display
+### FR-13: Session credit usage display ✅
 - Show ElevenLabs and LLM credit/token usage for the current session
 - Display in the top-right corner of the TUI
 - Track ElevenLabs usage (transcription time/characters consumed)

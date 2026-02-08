@@ -9,7 +9,7 @@ from openmic.app import (
     OpenMicApp, CommandInput, HELP_COMMANDS, SLASH_COMMANDS,
     _load_config, _save_config, CONFIG_FILE, THEMES,
     _muted_color, OPENMIC_THEME, NORD_THEME,
-    AutocompleteDropdown,
+    AutocompleteDropdown, UsageTracker,
 )
 
 
@@ -239,3 +239,82 @@ class TestAutocompleteDropdown:
         dropdown._matches = [("/start", "Start"), ("/stop", "Stop")]
         dropdown._selected_index = 1
         assert dropdown.get_selected() == "/stop"
+
+
+class TestUsageTracker:
+    """FR-13: Session credit usage tracking."""
+
+    def test_initial_state(self):
+        """Tracker starts with zero usage."""
+        tracker = UsageTracker()
+        assert tracker.audio_bytes_sent == 0
+        assert tracker.llm_calls == 0
+        assert tracker.llm_tokens == 0
+        assert tracker.audio_seconds == 0.0
+
+    def test_add_audio_bytes(self):
+        """Adding audio bytes accumulates correctly."""
+        tracker = UsageTracker()
+        tracker.add_audio_bytes(32000)  # 1 second of 16kHz 16-bit audio
+        assert tracker.audio_bytes_sent == 32000
+        assert tracker.audio_seconds == 1.0
+
+    def test_audio_seconds_calculation(self):
+        """Audio seconds calculated from bytes, sample rate, and bit depth."""
+        tracker = UsageTracker()
+        # 16kHz, 16-bit (2 bytes per sample) = 32000 bytes per second
+        tracker.add_audio_bytes(64000)  # 2 seconds
+        assert tracker.audio_seconds == 2.0
+
+    def test_format_audio_seconds(self):
+        """Audio format shows seconds for short durations."""
+        tracker = UsageTracker()
+        tracker.add_audio_bytes(32000 * 30)  # 30 seconds
+        assert tracker.format_audio() == "30s"
+
+    def test_format_audio_minutes(self):
+        """Audio format shows minutes for longer durations."""
+        tracker = UsageTracker()
+        tracker.add_audio_bytes(32000 * 90)  # 90 seconds = 1.5 minutes
+        assert tracker.format_audio() == "1.5m"
+
+    def test_add_llm_call(self):
+        """LLM call counting works."""
+        tracker = UsageTracker()
+        tracker.add_llm_call()
+        tracker.add_llm_call(tokens=150)
+        assert tracker.llm_calls == 2
+        assert tracker.llm_tokens == 150
+
+    def test_summary_empty(self):
+        """Summary returns empty string with no usage."""
+        tracker = UsageTracker()
+        assert tracker.summary() == ""
+
+    def test_summary_audio_only(self):
+        """Summary shows audio when only audio used."""
+        tracker = UsageTracker()
+        tracker.add_audio_bytes(32000 * 10)
+        summary = tracker.summary()
+        assert "Audio:" in summary
+        assert "10s" in summary
+
+    def test_summary_llm_only(self):
+        """Summary shows LLM when only LLM used."""
+        tracker = UsageTracker()
+        tracker.add_llm_call()
+        summary = tracker.summary()
+        assert "LLM:" in summary
+        assert "1 call" in summary
+
+    def test_summary_both(self):
+        """Summary shows both audio and LLM usage."""
+        tracker = UsageTracker()
+        tracker.add_audio_bytes(32000 * 60)
+        tracker.add_llm_call(tokens=200)
+        tracker.add_llm_call(tokens=300)
+        summary = tracker.summary()
+        assert "Audio:" in summary
+        assert "LLM:" in summary
+        assert "2 calls" in summary
+        assert "500 tok" in summary
