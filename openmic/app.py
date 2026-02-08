@@ -85,6 +85,20 @@ NORD_THEME = Theme(
 THEMES = [OPENMIC_THEME, NORD_THEME]
 
 
+def _muted_color(theme) -> str:
+    """Get a muted text color that contrasts with surface/panel backgrounds.
+
+    Uses a dimmed version of the foreground color rather than theme.secondary,
+    which may match the background color.
+    """
+    fg = theme.foreground or "#e8e8e8"
+    h = fg.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    # Dim to ~50% brightness for visible-but-muted text
+    r, g, b = int(r * 0.5), int(g * 0.5), int(b * 0.5)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 class StatusBar(Static):
     """Status bar showing recording state."""
 
@@ -104,7 +118,7 @@ class StatusBar(Static):
         elif self.recording:
             text = Text("◉ RECORDING", style=f"bold {theme.error}")
         else:
-            muted = theme.secondary or "#555577"
+            muted = _muted_color(theme)
             text = Text("○ IDLE", style=muted)
         self.update(text)
 
@@ -157,7 +171,7 @@ class TranscriptPane(Static):
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
         shadow = self._dim_color(primary)
-        muted = theme.secondary or "#555577"
+        muted = _muted_color(theme)
 
         lines = BANNER.split("\n")
         num_lines = len(lines)
@@ -262,7 +276,7 @@ class HelpScreen(ModalScreen):
     def on_mount(self) -> None:
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
-        muted = theme.secondary or "#555577"
+        muted = _muted_color(theme)
         fg = theme.foreground or "#e8e8e8"
 
         text = Text()
@@ -387,7 +401,7 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
                 label.append(f"  {name}", style=f"bold {theme.foreground or '#e8e8e8'}")
                 pad = max(1, 50 - len(name) - len(time_str))
                 label.append(" " * pad)
-                label.append(time_str, style=theme.secondary or "#555577")
+                label.append(time_str, style=_muted_color(theme))
 
                 option_id = str(meta["path"])
                 self._path_map[option_id] = meta["path"]
@@ -618,7 +632,7 @@ class OpenMicApp(App):
         """Display diarized transcript with styled speaker labels."""
         theme = self.current_theme
         primary = theme.primary or "#00d4aa"
-        muted = theme.secondary or "#555577"
+        muted = _muted_color(theme)
         text = Text()
         for segment in segments:
             speaker = segment.get("speaker", "Speaker")
@@ -663,7 +677,7 @@ class OpenMicApp(App):
         """Run a RAG query against a specific transcript."""
         theme = self.current_theme
         primary = theme.primary or "#00d4aa"
-        muted = theme.secondary or "#555577"
+        muted = _muted_color(theme)
         fg = theme.foreground or "#e8e8e8"
         processing = Text("Querying: ", style=f"italic {muted}")
         processing.append(question, style=fg)
@@ -703,7 +717,7 @@ class OpenMicApp(App):
 
     async def _generate_notes_for_path(self, transcript_path: Path) -> None:
         """Generate meeting notes for a specific transcript."""
-        muted = self.current_theme.secondary or "#555577"
+        muted = _muted_color(self.current_theme)
         processing = Text("Generating meeting notes...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
         self.transcript_pane._text = ""
@@ -735,7 +749,7 @@ class OpenMicApp(App):
         """View a transcript by its file path."""
         theme = self.current_theme
         primary = theme.primary or "#00d4aa"
-        muted = theme.secondary or "#555577"
+        muted = _muted_color(theme)
 
         content = target.read_text()
         stem = target.stem
@@ -798,7 +812,6 @@ class OpenMicApp(App):
                 new_name = command.replace(" ", "_")
                 new_path = rename_transcript(self._latest_transcript_path, new_name)
                 self._latest_transcript_path = new_path
-                muted = self.current_theme.secondary or "#555577"
                 self.transcript_pane.append_text(f"\nRenamed to: {new_path.name}\n")
             return
 

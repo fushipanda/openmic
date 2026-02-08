@@ -200,11 +200,11 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ## Bugs
 
-### BUG-1: Opening text doesn't match theme
+### BUG-1: Opening text doesn't match theme ✅
 - The initial/opening text displayed when the app launches does not use the current theme colors
 - Should respect the active theme on startup
 
-### BUG-2: History popup and help menu text blends with background
+### BUG-2: History popup and help menu text blends with background ✅
 - Text in the history popup (transcript picker) blends into the background depending on the theme
 - Same issue with the help menu popup
 - Text colors should contrast properly with the popup background across all themes

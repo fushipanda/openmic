@@ -8,6 +8,7 @@ from pathlib import Path
 from openmic.app import (
     OpenMicApp, CommandInput, HELP_COMMANDS,
     _load_config, _save_config, CONFIG_FILE, THEMES,
+    _muted_color, OPENMIC_THEME, NORD_THEME,
 )
 
 
@@ -113,3 +114,56 @@ class TestThemePersistence:
 
             reloaded = _load_config()
             assert reloaded["theme"] == "nord"
+
+
+class TestMutedColor:
+    """BUG-1/BUG-2: Muted text color should contrast with backgrounds."""
+
+    def test_muted_color_differs_from_secondary(self):
+        """Muted color should NOT be the same as theme.secondary (which matches background)."""
+        for theme in [OPENMIC_THEME, NORD_THEME]:
+            muted = _muted_color(theme)
+            assert muted != theme.secondary, (
+                f"Muted color {muted} should differ from secondary {theme.secondary} "
+                f"in theme {theme.name}"
+            )
+
+    def test_muted_color_differs_from_panel(self):
+        """Muted color should NOT match the panel background."""
+        for theme in [OPENMIC_THEME, NORD_THEME]:
+            muted = _muted_color(theme)
+            assert muted != theme.panel, (
+                f"Muted color {muted} should differ from panel {theme.panel} "
+                f"in theme {theme.name}"
+            )
+
+    def test_muted_color_differs_from_surface(self):
+        """Muted color should NOT match the surface background."""
+        for theme in [OPENMIC_THEME, NORD_THEME]:
+            muted = _muted_color(theme)
+            assert muted != theme.surface, (
+                f"Muted color {muted} should differ from surface {theme.surface} "
+                f"in theme {theme.name}"
+            )
+
+    def test_muted_color_is_dimmed_foreground(self):
+        """Muted color should be a dimmed version of the foreground."""
+        for theme in [OPENMIC_THEME, NORD_THEME]:
+            muted = _muted_color(theme)
+            fg = theme.foreground
+            # Muted should be darker than foreground
+            mh = muted.lstrip("#")
+            fh = fg.lstrip("#")
+            m_brightness = sum(int(mh[i:i+2], 16) for i in (0, 2, 4))
+            f_brightness = sum(int(fh[i:i+2], 16) for i in (0, 2, 4))
+            assert m_brightness < f_brightness, (
+                f"Muted {muted} should be darker than foreground {fg} "
+                f"in theme {theme.name}"
+            )
+
+    def test_muted_color_returns_hex(self):
+        """Muted color should return a valid hex color string."""
+        for theme in [OPENMIC_THEME, NORD_THEME]:
+            muted = _muted_color(theme)
+            assert muted.startswith("#")
+            assert len(muted) == 7
