@@ -124,10 +124,10 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Add green `*` indicator in transcript picker for transcripts with existing notes
 - [x] Indicator checks notes/ directory using the same naming convention as storage
 
-### FR-19: Rich text formatting for markdown
-- Currently headings show as `# Heading` and bold text shows as `**text**`
-- Add proper rich text formatting support so markdown renders visually (bold text, heading sizes, etc.)
-- Apply to both transcript and notes display
+### FR-19: Rich text formatting for markdown ✅
+- [x] Added `set_markdown()` method to TranscriptPane using Rich's Markdown renderer
+- [x] Notes display now renders with proper headings, bold, lists, and formatting
+- [x] Transcript viewing renders markdown formatting (headings, bold speaker names, etc.)
 
 ### FR-20: Improve notes title formatting
 - Notes currently display as "Meeting Transcript - 2026-01-01_12-00"

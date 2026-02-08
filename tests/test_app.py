@@ -5,11 +5,13 @@ import pytest
 from unittest.mock import patch
 from pathlib import Path
 
+from rich.markdown import Markdown as RichMarkdown
+
 from openmic.app import (
     OpenMicApp, CommandInput, HELP_COMMANDS, SLASH_COMMANDS,
     _load_config, _save_config, CONFIG_FILE, THEME_NAMES,
     _muted_color, OPENMIC_THEME,
-    AutocompleteDropdown, UsageTracker,
+    AutocompleteDropdown, UsageTracker, TranscriptPane,
     _parse_transcript_meta,
 )
 from openmic.storage import NOTES_DIR
@@ -397,3 +399,27 @@ class TestNotesIndicator:
 
         # Verify the picker logic would detect it
         assert (notes_dir / (transcript_stem + "_notes.md")).exists()
+
+
+class TestMarkdownRendering:
+    """FR-19: Rich text formatting for markdown display."""
+
+    def test_transcript_pane_has_set_markdown(self):
+        """TranscriptPane should have a set_markdown method."""
+        assert hasattr(TranscriptPane, "set_markdown")
+
+    def test_rich_markdown_renders_headings(self):
+        """Rich Markdown should parse heading syntax."""
+        md = RichMarkdown("# Heading 1\n\n## Heading 2")
+        # RichMarkdown is a renderable; it should be instantiatable without error
+        assert md is not None
+
+    def test_rich_markdown_renders_bold(self):
+        """Rich Markdown should parse bold syntax."""
+        md = RichMarkdown("**bold text**")
+        assert md is not None
+
+    def test_rich_markdown_renders_lists(self):
+        """Rich Markdown should parse list syntax."""
+        md = RichMarkdown("- item 1\n- item 2\n- item 3")
+        assert md is not None

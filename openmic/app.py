@@ -8,6 +8,7 @@ import json
 from datetime import datetime, date
 from pathlib import Path
 
+from rich.markdown import Markdown as RichMarkdown
 from rich.text import Text
 
 from textual.app import App, ComposeResult
@@ -275,6 +276,13 @@ class TranscriptPane(Static):
         self._show_banner = False
         self._text = text
         self.update(self._text)
+        self._scroll_to_bottom()
+
+    def set_markdown(self, markdown_text: str) -> None:
+        """Render markdown content with rich formatting."""
+        self._show_banner = False
+        self._text = markdown_text
+        self.update(RichMarkdown(markdown_text))
         self._scroll_to_bottom()
 
     def clear(self) -> None:
@@ -894,7 +902,7 @@ class OpenMicApp(App):
             notes_content, notes_path = result
             self.usage_tracker.add_llm_call()
             self.status_bar.refresh_usage()
-            self.transcript_pane.set_text(f"{notes_content}\n\nSaved to: {notes_path}\n")
+            self.transcript_pane.set_markdown(f"{notes_content}\n\n---\n\n*Saved to: {notes_path}*\n")
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError generating notes: {e}\n")
 
@@ -913,23 +921,9 @@ class OpenMicApp(App):
 
     def _view_transcript_path(self, target: Path) -> None:
         """View a transcript by its file path."""
-        theme = self.current_theme
-        primary = theme.primary or "#00d4aa"
-        muted = _muted_color(theme)
-
         content = target.read_text()
-        stem = target.stem
-        name = stem[17:].replace("_", " ") if len(stem) > 16 else stem
-
-        text = Text()
-        if name:
-            text.append(f"{name}\n\n", style=f"bold {primary}")
-        text.append(content)
-        text.append(f"\n{target}\n", style=f"italic {muted}")
-
-        self.transcript_pane._show_banner = False
-        self.transcript_pane._text = ""
-        self.transcript_pane.update(text)
+        footer = f"\n---\n\n*{target}*\n"
+        self.transcript_pane.set_markdown(content + footer)
 
     def _view_transcript(self, identifier: str) -> None:
         """View a specific transcript by number or name."""
