@@ -221,6 +221,7 @@ HELP_COMMANDS = [
     ("/notes", "Generate structured meeting notes"),
     ("/name <name>", "Rename the latest transcript"),
     ("/verbose", "Toggle debug output"),
+    ("/exit", "Quit OpenMic"),
     ("", ""),
     ("Ctrl+R", "Toggle recording on/off"),
     ("Ctrl+T", "Cycle theme"),
@@ -850,6 +851,8 @@ class OpenMicApp(App):
                 self._view_transcript(name)
             else:
                 self.transcript_pane.append_text("\nUsage: /transcript <name or number>\n")
+        elif command == "/exit":
+            self.exit()
         elif command in ("/help", "?"):
             self.action_show_help()
         elif command == "/verbose":

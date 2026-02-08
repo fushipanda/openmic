@@ -168,7 +168,7 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 ### FR-11 Shadow on title text ✅
 - Openmic text should have a clear shadow down and left behind the text, ensure the shadow is aligned near the text and colours match theme
 
-### FR-12: `/exit` command
+### FR-12: `/exit` command ✅
 - Typing `/exit` in the command input exits the application cleanly
 - Should behave the same as `Ctrl+C` / normal quit
 
