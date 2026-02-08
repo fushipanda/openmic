@@ -68,21 +68,18 @@ OPENMIC_THEME = Theme(
     dark=True,
 )
 
-NORD_THEME = Theme(
-    name="nord",
-    primary="#88c0d0",
-    secondary="#434c5e",
-    accent="#88c0d0",
-    background="#2e3440",
-    surface="#3b4252",
-    panel="#434c5e",
-    error="#bf616a",
-    success="#a3be8c",
-    foreground="#eceff4",
-    dark=True,
-)
-
-THEMES = [OPENMIC_THEME, NORD_THEME]
+# Curated list of themes to cycle through.
+# The first entry is our custom theme; the rest are Textual built-ins.
+THEME_NAMES = [
+    "openmic",
+    "nord",
+    "dracula",
+    "tokyo-night",
+    "monokai",
+    "catppuccin-mocha",
+    "gruvbox",
+    "rose-pine",
+]
 
 
 def _muted_color(theme) -> str:
@@ -337,10 +334,10 @@ class AutocompleteDropdown(Static):
         max-height: 14;
         margin: 0 1;
         background: $surface;
+        color: #e8e8e8;
         border: round $primary 50%;
         padding: 0 1;
         display: none;
-        layer: autocomplete;
     }
     """
 
@@ -373,22 +370,13 @@ class AutocompleteDropdown(Static):
 
     def _render_content(self) -> None:
         """Render the dropdown with the current matches and selection."""
-        theme = self.app.current_theme
-        primary = theme.primary or "#00d4aa"
-        fg = theme.foreground or "#e8e8e8"
-        muted = _muted_color(theme)
-
-        text = Text()
+        lines = []
         for i, (cmd, desc) in enumerate(self._matches):
             if i == self._selected_index:
-                text.append(f"  {cmd:<16}", style=f"bold {primary}")
-                text.append(f" {desc}", style=fg)
+                lines.append(f"▸ {cmd:<16} {desc}")
             else:
-                text.append(f"  {cmd:<16}", style=fg)
-                text.append(f" {desc}", style=muted)
-            if i < len(self._matches) - 1:
-                text.append("\n")
-        self.update(text)
+                lines.append(f"  {cmd:<16} {desc}")
+        self.update("\n".join(lines))
 
     def move_selection(self, delta: int) -> None:
         """Move the selection up or down."""
@@ -584,7 +572,7 @@ class OpenMicApp(App):
     CSS = """
     Screen {
         background: $background;
-        layers: default autocomplete;
+        layers: default;
     }
 
     StatusBar {
@@ -631,12 +619,10 @@ class OpenMicApp(App):
 
     def __init__(self) -> None:
         super().__init__()
-        for t in THEMES:
-            self.register_theme(t)
+        self.register_theme(OPENMIC_THEME)
         config = _load_config()
         saved_theme = config.get("theme")
-        theme_names = [t.name for t in THEMES]
-        self.theme = saved_theme if saved_theme in theme_names else THEMES[0].name
+        self.theme = saved_theme if saved_theme in THEME_NAMES else THEME_NAMES[0]
         self.usage_tracker = UsageTracker()
         self.status_bar = StatusBar(usage_tracker=self.usage_tracker)
         self.transcript_pane = TranscriptPane()
@@ -670,9 +656,8 @@ class OpenMicApp(App):
 
     def action_cycle_theme(self) -> None:
         """Cycle through available themes and persist the choice."""
-        names = [t.name for t in THEMES]
-        idx = names.index(self.theme) if self.theme in names else -1
-        self.theme = names[(idx + 1) % len(names)]
+        idx = THEME_NAMES.index(self.theme) if self.theme in THEME_NAMES else -1
+        self.theme = THEME_NAMES[(idx + 1) % len(THEME_NAMES)]
         # Persist
         config = _load_config()
         config["theme"] = self.theme

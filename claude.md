@@ -114,109 +114,42 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ## Feature Requests
 
-### FR-1: Help popup on `?` key ✅
-- Pressing `?` opens a centered popup listing all available commands with descriptions (similar to Claude Code's help)
-- Should show command name, usage, and brief description
-- Dismiss with `Esc` or `?` again
+### FR-17: Combine themes and palettes ✅
+- [x] Removed duplicate custom nord theme (conflicted with Textual's built-in nord)
+- [x] Consolidated to single custom theme (openmic) + curated Textual built-in themes
+- [x] All themes use Textual's Theme API — title/banner colors derive from current_theme
+- [x] Theme choice persists through sessions via settings.json
 
-### FR-2: Rename Nord theme and remove Theme footer button ✅
-- Rename `openmic-nord` theme to `nord`
-- Remove `Ctrl+T` / "Theme" from the footer bindings (keep the binding functional, just hide from footer)
+### FR-18: Visual indicator for generated notes
+- Add a visual indicator (e.g., star symbol ⭐) in the transcript picker to show which transcripts have notes already generated
+- This helps users quickly identify which transcripts have been processed
 
-### FR-3: Scope `/query` and `/notes` to a specific transcript ✅
-- `/query` and `/notes` should operate on a chosen transcript, not all transcripts / latest
-- Ideally use the transcript picker popup (FR-5) to select which transcript
+### FR-19: Rich text formatting for markdown
+- Currently headings show as `# Heading` and bold text shows as `**text**`
+- Add proper rich text formatting support so markdown renders visually (bold text, heading sizes, etc.)
+- Apply to both transcript and notes display
 
-### FR-4: `/history` alias for `/transcripts` ✅
-- Add `/history` as an alias that behaves identically to `/transcripts`
-- `/transcript` (singular) should also work as an alias
+### FR-20: Improve notes title formatting
+- Notes currently display as "Meeting Transcript - 2026-01-01_12-00"
+- Format this more nicely (don't need to put name in brackets)
+- Make the title more readable and user-friendly
 
-### FR-5: Transcript history popup (redesign `/transcripts` and `/history`) ✅
-- Replace the current numbered list with a centered modal popup (similar to opencode sessions)
-- Group transcripts by date with headers: "Today", "Yesterday", or formatted date (e.g. "Jan 1st 2026")
-- Each entry shows: `[Meeting Name]` on the left, time (e.g. `10:00 AM`) aligned to the right
-- No numbered list (1. 2. 3.) — use selectable rows instead
-- Navigable with arrow keys, select with Enter, dismiss with Esc
-
-### FR-6: `/notes` transcript picker ✅
-- When running `/notes`, show the transcript picker popup (FR-5) to choose which transcript to generate notes for
-- If only one transcript exists, skip the picker and use it directly
-
-### FR-7: Scrollable live transcript ✅
-- During live transcription, the user should be able to scroll up/down through the transcript text
-- Auto-scroll to bottom on new text, but respect manual scroll position (don't force-scroll if user scrolled up)
-
-### FR-8: Structured live transcript (paragraph breaks) ✅
-- Live transcript currently outputs as a single paragraph
-- Use ElevenLabs `committed_transcript` events (triggered by VAD silence detection) as natural paragraph/line breaks
-- Each committed segment should start on a new line rather than being concatenated inline
-
-### FR-9: Prompt for session name after `/stop` ✅
-- After `/stop` finishes batch transcription, prompt the user to name the session
-- Could use the command input with a placeholder like "Name this session (Enter to skip)"
-- If skipped (empty Enter), keep the timestamp-only filename
-
-### FR-10: Pause command (`/pause`) ✅
-- `/pause` stops mic capture and stops sending audio chunks to the WebSocket
-- Keep the WebSocket connection alive (reconnect transparently if it times out)
-- Keep the WAV file handle open for appending
-- Transcript stays on screen, no batch processing triggered
-- `/start` after pause resumes: restarts mic capture, continues sending chunks, appends to same WAV
-- Status bar should show a "PAUSED" state (distinct from IDLE and RECORDING)
-- `/stop` after pause should work normally — processes the full WAV with all segments
-
-### FR-11 Shadow on title text ✅
-- Openmic text should have a clear shadow down and left behind the text, ensure the shadow is aligned near the text and colours match theme
-
-### FR-12: `/exit` command ✅
-- Typing `/exit` in the command input exits the application cleanly
-- Should behave the same as `Ctrl+C` / normal quit
-
-### FR-13: Session credit usage display ✅
-- Show ElevenLabs and LLM credit/token usage for the current session
-- Display in the top-right corner of the TUI
-- Track ElevenLabs usage (transcription time/characters consumed)
-- Track LLM token usage (Anthropic/OpenAI tokens for RAG queries and notes generation)
-- No need to show percentage unless total remaining credits can be fetched from the API
-- Reset counters on app start
-
-### FR-14: Command autocomplete dropdown ✅
-- When typing a `/` command, show a dropdown popup above the command bar with matching commands
-- Filter as the user types: e.g. typing `/st` shows `/start`, `/stop` etc.
-- Results sorted alphabetically
-- Pressing Enter selects the top match
-- Arrow keys to navigate, Esc to dismiss
-- Each entry shows command name and brief description
-
-### FR-15: Replace `?` help with `Ctrl+?` keyboard shortcut ✅
-- Remove the `?` key binding for help
-- Add `Ctrl+?` as the keyboard shortcut to toggle the help menu
-- Help menu behaviour otherwise unchanged
-
-### FR-16: Theme auto-save and persistence ✅
-- When the user changes theme, automatically save the selection
-- Persist theme choice across sessions (via `~/.config/openmic/settings.json`)
-- On app start, load and apply the saved theme
+### FR-21: Easy navigation back from transcript/notes view
+- Add a simple way to return from viewing a transcript or note (e.g., Esc key returns to picker menu)
+- Should work consistently across all viewing contexts
 
 ## Bugs
 
-### BUG-1: Opening text doesn't match theme ✅
-- The initial/opening text displayed when the app launches does not use the current theme colors
-- Should respect the active theme on startup
+### BUG-5: Command autocomplete not working
+- The command autocomplete dropdown is not appearing when typing commands
+- Commands should filter and appear in the dropdown as the user types (e.g., `/st` shows `/start`, `/stop`)
+- No commands are currently appearing in the autocomplete list
+- Auto-save functionality also not working
 
-### BUG-2: History popup and help menu text blends with background ✅
-- Text in the history popup (transcript picker) blends into the background depending on the theme
-- Same issue with the help menu popup
-- Text colors should contrast properly with the popup background across all themes
-
-### BUG-3: Note summaries are regenerated unnecessarily ✅
-- If `/notes` has already been run for a transcript and a summary exists in `notes/`, it should not regenerate
-- Load and display the existing saved summary instead of making another LLM call
-- Only regenerate if explicitly requested (or if the transcript has changed)
-
-### BUG-4: Command bar lacks padding ✅
-- All commands typed in the command bar start at the very left edge, touching the border
-- Add left padding/space in the command input so text doesn't touch the border
+### BUG-6: Note summaries regeneration issue
+- Note summaries that have already been generated with AI are being regenerated on subsequent calls
+- Should save and reuse the existing meeting summary instead of making new LLM calls
+- Only regenerate if explicitly requested or if the transcript has changed
 
 ---
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 from openmic.app import (
     OpenMicApp, CommandInput, HELP_COMMANDS, SLASH_COMMANDS,
-    _load_config, _save_config, CONFIG_FILE, THEMES,
-    _muted_color, OPENMIC_THEME, NORD_THEME,
+    _load_config, _save_config, CONFIG_FILE, THEME_NAMES,
+    _muted_color, OPENMIC_THEME,
     AutocompleteDropdown, UsageTracker,
 )
 
@@ -107,14 +107,13 @@ class TestThemePersistence:
             _save_config({"theme": "openmic"})
             # Simulate what action_cycle_theme does
             config = _load_config()
-            names = [t.name for t in THEMES]
-            idx = names.index(config["theme"])
-            new_theme = names[(idx + 1) % len(names)]
+            idx = THEME_NAMES.index(config["theme"])
+            new_theme = THEME_NAMES[(idx + 1) % len(THEME_NAMES)]
             config["theme"] = new_theme
             _save_config(config)
 
             reloaded = _load_config()
-            assert reloaded["theme"] == "nord"
+            assert reloaded["theme"] == THEME_NAMES[1]
 
 
 class TestMutedColor:
@@ -122,52 +121,84 @@ class TestMutedColor:
 
     def test_muted_color_differs_from_secondary(self):
         """Muted color should NOT be the same as theme.secondary (which matches background)."""
-        for theme in [OPENMIC_THEME, NORD_THEME]:
-            muted = _muted_color(theme)
-            assert muted != theme.secondary, (
-                f"Muted color {muted} should differ from secondary {theme.secondary} "
-                f"in theme {theme.name}"
-            )
+        muted = _muted_color(OPENMIC_THEME)
+        assert muted != OPENMIC_THEME.secondary, (
+            f"Muted color {muted} should differ from secondary {OPENMIC_THEME.secondary}"
+        )
 
     def test_muted_color_differs_from_panel(self):
         """Muted color should NOT match the panel background."""
-        for theme in [OPENMIC_THEME, NORD_THEME]:
-            muted = _muted_color(theme)
-            assert muted != theme.panel, (
-                f"Muted color {muted} should differ from panel {theme.panel} "
-                f"in theme {theme.name}"
-            )
+        muted = _muted_color(OPENMIC_THEME)
+        assert muted != OPENMIC_THEME.panel, (
+            f"Muted color {muted} should differ from panel {OPENMIC_THEME.panel}"
+        )
 
     def test_muted_color_differs_from_surface(self):
         """Muted color should NOT match the surface background."""
-        for theme in [OPENMIC_THEME, NORD_THEME]:
-            muted = _muted_color(theme)
-            assert muted != theme.surface, (
-                f"Muted color {muted} should differ from surface {theme.surface} "
-                f"in theme {theme.name}"
-            )
+        muted = _muted_color(OPENMIC_THEME)
+        assert muted != OPENMIC_THEME.surface, (
+            f"Muted color {muted} should differ from surface {OPENMIC_THEME.surface}"
+        )
 
     def test_muted_color_is_dimmed_foreground(self):
         """Muted color should be a dimmed version of the foreground."""
-        for theme in [OPENMIC_THEME, NORD_THEME]:
-            muted = _muted_color(theme)
-            fg = theme.foreground
-            # Muted should be darker than foreground
-            mh = muted.lstrip("#")
-            fh = fg.lstrip("#")
-            m_brightness = sum(int(mh[i:i+2], 16) for i in (0, 2, 4))
-            f_brightness = sum(int(fh[i:i+2], 16) for i in (0, 2, 4))
-            assert m_brightness < f_brightness, (
-                f"Muted {muted} should be darker than foreground {fg} "
-                f"in theme {theme.name}"
-            )
+        muted = _muted_color(OPENMIC_THEME)
+        fg = OPENMIC_THEME.foreground
+        mh = muted.lstrip("#")
+        fh = fg.lstrip("#")
+        m_brightness = sum(int(mh[i:i+2], 16) for i in (0, 2, 4))
+        f_brightness = sum(int(fh[i:i+2], 16) for i in (0, 2, 4))
+        assert m_brightness < f_brightness, (
+            f"Muted {muted} should be darker than foreground {fg}"
+        )
 
     def test_muted_color_returns_hex(self):
         """Muted color should return a valid hex color string."""
-        for theme in [OPENMIC_THEME, NORD_THEME]:
-            muted = _muted_color(theme)
-            assert muted.startswith("#")
-            assert len(muted) == 7
+        muted = _muted_color(OPENMIC_THEME)
+        assert muted.startswith("#")
+        assert len(muted) == 7
+
+
+class TestThemeConsolidation:
+    """FR-17: Consolidated theming system."""
+
+    def test_openmic_is_first_theme(self):
+        """The custom openmic theme should be the default (first in list)."""
+        assert THEME_NAMES[0] == "openmic"
+
+    def test_no_duplicate_theme_names(self):
+        """Theme names should be unique."""
+        assert len(THEME_NAMES) == len(set(THEME_NAMES))
+
+    def test_multiple_themes_available(self):
+        """There should be several themes to cycle through."""
+        assert len(THEME_NAMES) >= 3
+
+    def test_theme_cycle_wraps_around(self):
+        """Cycling past the last theme should return to the first."""
+        idx = len(THEME_NAMES) - 1
+        next_idx = (idx + 1) % len(THEME_NAMES)
+        assert next_idx == 0
+        assert THEME_NAMES[next_idx] == "openmic"
+
+    def test_custom_theme_has_required_colors(self):
+        """The custom openmic theme should define all key color properties."""
+        assert OPENMIC_THEME.primary is not None
+        assert OPENMIC_THEME.background is not None
+        assert OPENMIC_THEME.surface is not None
+        assert OPENMIC_THEME.foreground is not None
+        assert OPENMIC_THEME.error is not None
+
+    def test_saved_theme_falls_back_to_default(self, tmp_path):
+        """Unknown saved theme should fall back to the first theme."""
+        config_file = tmp_path / "settings.json"
+        with patch("openmic.app.CONFIG_FILE", config_file), \
+             patch("openmic.app.CONFIG_DIR", tmp_path):
+            _save_config({"theme": "nonexistent-theme"})
+            config = _load_config()
+            saved = config.get("theme")
+            result = saved if saved in THEME_NAMES else THEME_NAMES[0]
+            assert result == "openmic"
 
 
 class TestSlashCommands:
