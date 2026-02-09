@@ -1,12 +1,13 @@
 """Meeting notes generation using LangChain."""
 
+from datetime import datetime
 from pathlib import Path
 
 from langchain_core.prompts import PromptTemplate
 from langchain_classic.chains import LLMChain
 
 from openmic.rag import get_llm
-from openmic.storage import get_latest_transcript, save_notes, NOTES_DIR, format_transcript_title
+from openmic.storage import get_latest_transcript, save_notes, NOTES_DIR
 
 
 NOTES_PROMPT = PromptTemplate(
@@ -76,8 +77,27 @@ def generate_meeting_notes(transcript_path: Path) -> tuple[str, Path]:
     stem = transcript_path.stem
     timestamp = stem[:16]
     session_name = stem[17:] if len(stem) > 16 else None
-    title = format_transcript_title(timestamp, session_name)
-    full_notes = f"# Meeting Notes\n\n**{title}**\n\n{notes_content}"
+
+    # Format the title nicely
+    try:
+        dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M")
+        day = dt.day
+        if 11 <= day <= 13:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+        date_str = dt.strftime(f"%b {day}{suffix} %Y, %-I:%M %p")
+    except ValueError:
+        date_str = timestamp
+
+    # Build header based on whether we have a session name
+    if session_name:
+        session_display = session_name.replace("_", " ").strip()
+        header = f"# {session_display}\n\n*{date_str}*"
+    else:
+        header = f"# Meeting Notes\n\n*{date_str}*"
+
+    full_notes = f"{header}\n\n{notes_content}"
 
     notes_path = save_notes(full_notes, transcript_path)
     return full_notes, notes_path
