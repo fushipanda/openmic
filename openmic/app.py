@@ -129,13 +129,17 @@ class UsageTracker:
         return f"{mins:.1f}m"
 
     def summary(self) -> str:
+        """Return a summary of session usage/credits."""
         parts = []
         if self.audio_bytes_sent > 0:
             parts.append(f"Audio: {self.format_audio()}")
         if self.llm_calls > 0:
             token_str = f" ({self.llm_tokens} tok)" if self.llm_tokens else ""
             parts.append(f"LLM: {self.llm_calls} call{'s' if self.llm_calls != 1 else ''}{token_str}")
-        return " · ".join(parts) if parts else ""
+
+        if parts:
+            return "Session: " + " · ".join(parts)
+        return ""
 
 
 class StatusBar(Static):

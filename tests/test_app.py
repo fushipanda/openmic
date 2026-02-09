@@ -341,6 +341,7 @@ class TestUsageTracker:
         tracker = UsageTracker()
         tracker.add_audio_bytes(32000 * 10)
         summary = tracker.summary()
+        assert "Session:" in summary
         assert "Audio:" in summary
         assert "10s" in summary
 
@@ -349,6 +350,7 @@ class TestUsageTracker:
         tracker = UsageTracker()
         tracker.add_llm_call()
         summary = tracker.summary()
+        assert "Session:" in summary
         assert "LLM:" in summary
         assert "1 call" in summary
 
@@ -359,6 +361,7 @@ class TestUsageTracker:
         tracker.add_llm_call(tokens=200)
         tracker.add_llm_call(tokens=300)
         summary = tracker.summary()
+        assert "Session:" in summary
         assert "Audio:" in summary
         assert "LLM:" in summary
         assert "2 calls" in summary

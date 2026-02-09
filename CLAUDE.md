@@ -2,10 +2,15 @@
 
 ## Feature Requests
 
-### FR-22: Session Credit Usage Display
-- Display credit usage for the current session in top right corner
-- If possible, show total remaining credits (otherwise just session usage)
-- No need to show percentage unless total credits available
+### ✅ FR-22: Session Credit Usage Display (COMPLETED - Enhanced)
+- ✅ Display credit usage for the current session in top right corner
+- ✅ If possible, show total remaining credits (otherwise just session usage)
+- ✅ No need to show percentage unless total credits available
+
+NOTE: This feature was already implemented. Enhanced the display to clearly show "Session:" prefix to make it more obvious that credit/usage tracking is active. Display shows:
+- Audio usage (time in seconds/minutes)
+- LLM calls (with token counts)
+- Example: "Session: Audio: 2.5m · LLM: 3 calls (450 tok)"
 
 ### ✅ FR-23: Reverse Star Indicator for Notes (COMPLETED)
 - ✅ Change visual indicator to star notes that **haven't** been generated yet
