@@ -7,9 +7,9 @@
 - If possible, show total remaining credits (otherwise just session usage)
 - No need to show percentage unless total credits available
 
-### FR-23: Reverse Star Indicator for Notes
-- Change visual indicator to star notes that **haven't** been generated yet
-- Currently stars notes that have been generated - reverse this behavior
+### ✅ FR-23: Reverse Star Indicator for Notes (COMPLETED)
+- ✅ Change visual indicator to star notes that **haven't** been generated yet
+- ✅ Currently stars notes that have been generated - reverse this behavior
 
 ### FR-24: Rich Text Formatting for Markdown
 - Add rich formatting for headings (currently shows as `#`)

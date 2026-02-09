@@ -584,12 +584,12 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
                 name = meta["name"] or "Untitled"
                 time_str = dt.strftime("%-I:%M %p")
                 has_notes = (NOTES_DIR / (meta["stem"] + "_notes.md")).exists()
-                notes_indicator = " *" if has_notes else ""
+                notes_indicator = " *" if not has_notes else ""
                 # Build a formatted line: name left, time right
                 label = Text()
                 label.append(f"  {name}", style=f"bold {theme.foreground or '#e8e8e8'}")
-                if has_notes:
-                    label.append(" *", style=f"bold {theme.success or '#2ed573'}")
+                if not has_notes:
+                    label.append(" *", style=f"bold {theme.accent or '#00d4aa'}")
                 display_len = len(name) + len(notes_indicator) + len(time_str)
                 pad = max(1, 50 - display_len)
                 label.append(" " * pad)
