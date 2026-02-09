@@ -344,10 +344,11 @@ class AutocompleteDropdown(Static):
         max-height: 14;
         margin: 0 0 3 1;
         background: $surface;
-        color: #e8e8e8;
-        border: round $primary 50%;
+        color: $foreground;
+        border: round $primary;
         padding: 0 1;
         display: none;
+        scrollbar-size: 0 0;
     }
     """
 
@@ -380,13 +381,35 @@ class AutocompleteDropdown(Static):
 
     def _render_content(self) -> None:
         """Render the dropdown with the current matches and selection."""
+        if not self._matches:
+            return
+
+        # Use Rich Text for better styling
+        from rich.text import Text as RichText
+        theme = self.app.current_theme
+
         lines = []
         for i, (cmd, desc) in enumerate(self._matches):
+            line = RichText()
             if i == self._selected_index:
-                lines.append(f"▸ {cmd:<16} {desc}")
+                # Highlighted selection
+                line.append("▸ ", style=f"bold {theme.primary}")
+                line.append(f"{cmd:<16}", style=f"bold {theme.accent}")
+                line.append(f" {desc}", style=theme.foreground)
             else:
-                lines.append(f"  {cmd:<16} {desc}")
-        self.update("\n".join(lines))
+                line.append("  ")
+                line.append(f"{cmd:<16}", style=theme.foreground)
+                line.append(f" {desc}", style=_muted_color(theme))
+            lines.append(line)
+
+        # Combine all lines
+        combined = RichText()
+        for i, line in enumerate(lines):
+            if i > 0:
+                combined.append("\n")
+            combined.append(line)
+
+        self.update(combined)
 
     def move_selection(self, delta: int) -> None:
         """Move the selection up or down."""
@@ -993,6 +1016,15 @@ class OpenMicApp(App):
             event.stop()
         elif event.key == "down":
             self.autocomplete.move_selection(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "tab":
+            # Tab key autocomplete: fill in the selected command
+            selected = self.autocomplete.get_selected()
+            if selected:
+                self.command_input.value = selected + " "
+                self.command_input.cursor_position = len(self.command_input.value)
+                self.autocomplete.hide()
             event.prevent_default()
             event.stop()
         elif event.key == "escape":
