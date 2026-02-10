@@ -1094,7 +1094,13 @@ class OpenMicApp(App):
         self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
 
     def _show_template_picker(self, transcript_path: Path) -> None:
-        """Show template picker, then generate notes with selected template."""
+        """Show template picker — or skip it if notes already exist."""
+        existing = get_existing_notes(transcript_path)
+        if existing is not None:
+            # Notes already exist — show them directly, no template picker needed
+            self.call_later(self._generate_notes_for_path, transcript_path)
+            return
+
         def on_template_selected(template_id: str | None) -> None:
             if template_id is not None:
                 self.call_later(self._generate_notes_with_template, transcript_path, template_id)

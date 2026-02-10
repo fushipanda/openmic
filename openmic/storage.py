@@ -4,9 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 
-TRANSCRIPTS_DIR = Path("transcripts")
-NOTES_DIR = Path("notes")
-RECORDINGS_DIR = Path("recordings")
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TRANSCRIPTS_DIR = _PROJECT_ROOT / "transcripts"
+NOTES_DIR = _PROJECT_ROOT / "notes"
+RECORDINGS_DIR = _PROJECT_ROOT / "recordings"
 
 
 def format_transcript_title(timestamp: str, session_name: str | None = None) -> str:
