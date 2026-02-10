@@ -15,8 +15,11 @@ def storage_dirs(tmp_path, monkeypatch):
     notes = tmp_path / "notes"
     transcripts.mkdir()
     notes.mkdir()
+    recordings = tmp_path / "recordings"
+    recordings.mkdir()
     monkeypatch.setattr("openmic.storage.TRANSCRIPTS_DIR", transcripts)
     monkeypatch.setattr("openmic.storage.NOTES_DIR", notes)
+    monkeypatch.setattr("openmic.storage.RECORDINGS_DIR", recordings)
     monkeypatch.setattr("openmic.notes.NOTES_DIR", notes)
     monkeypatch.setattr("openmic.notes.get_latest_transcript",
                         lambda: _get_latest(transcripts))

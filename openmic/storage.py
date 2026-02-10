@@ -6,6 +6,7 @@ from pathlib import Path
 
 TRANSCRIPTS_DIR = Path("transcripts")
 NOTES_DIR = Path("notes")
+RECORDINGS_DIR = Path("recordings")
 
 
 def format_transcript_title(timestamp: str, session_name: str | None = None) -> str:
@@ -40,6 +41,7 @@ def ensure_dirs() -> None:
     """Create storage directories if they don't exist."""
     TRANSCRIPTS_DIR.mkdir(exist_ok=True)
     NOTES_DIR.mkdir(exist_ok=True)
+    RECORDINGS_DIR.mkdir(exist_ok=True)
 
 
 def save_transcript(segments: list[dict], session_name: str | None = None) -> Path:
@@ -142,3 +144,29 @@ def save_notes(content: str, transcript_path: Path) -> Path:
     notes_path = NOTES_DIR / notes_filename
     notes_path.write_text(content)
     return notes_path
+
+
+def list_recordings() -> list[Path]:
+    """List all WAV recording files.
+
+    Returns:
+        List of recording file paths, sorted newest first
+    """
+    ensure_dirs()
+    return sorted(RECORDINGS_DIR.glob("*.wav"), reverse=True)
+
+
+def delete_all_recordings() -> tuple[int, int]:
+    """Delete all saved recordings.
+
+    Returns:
+        Tuple of (count of files deleted, total bytes freed)
+    """
+    recordings = list_recordings()
+    total_bytes = 0
+    count = 0
+    for rec in recordings:
+        total_bytes += rec.stat().st_size
+        rec.unlink()
+        count += 1
+    return count, total_bytes

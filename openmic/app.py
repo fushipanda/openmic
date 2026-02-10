@@ -42,7 +42,7 @@ def _save_config(config: dict) -> None:
 
 from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
-from openmic.storage import save_transcript, list_transcripts, rename_transcript, NOTES_DIR
+from openmic.storage import save_transcript, list_transcripts, rename_transcript, NOTES_DIR, RECORDINGS_DIR, list_recordings, delete_all_recordings
 from openmic.rag import TranscriptRAG
 from openmic.notes import generate_meeting_notes, generate_notes_for_latest, get_existing_notes
 
@@ -304,6 +304,7 @@ class CommandInput(Input):
 
 
 SLASH_COMMANDS = [
+    ("/cleanup-recordings", "Delete all saved recordings"),
     ("/exit", "Quit OpenMic"),
     ("/help", "Show help"),
     ("/history", "List saved transcripts"),
@@ -326,6 +327,7 @@ HELP_COMMANDS = [
     ("/query <question>", "Ask a question about your transcripts"),
     ("/notes", "Generate structured meeting notes"),
     ("/name <name>", "Rename the latest transcript"),
+    ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose", "Toggle debug output"),
     ("/exit", "Quit OpenMic"),
     ("", ""),
@@ -672,7 +674,7 @@ class OpenMicApp(App):
         self.command_input = CommandInput()
         self.autocomplete = AutocompleteDropdown()
         self.audio_recorder = AudioRecorder(
-            output_dir=Path("."),
+            output_dir=RECORDINGS_DIR,
             on_audio_chunk=self._on_audio_chunk,
         )
         self.transcriber = RealtimeTranscriber(
@@ -827,7 +829,6 @@ class OpenMicApp(App):
             segments = BatchTranscriber.parse_diarized_result(result)
             self._latest_transcript_path = save_transcript(segments, self._session_name)
             self._display_diarized_transcript(segments)
-            self._cleanup_wav(wav_path)
             # Prompt for session name if none was provided
             if not self._session_name:
                 self._awaiting_session_name = True
@@ -858,12 +859,20 @@ class OpenMicApp(App):
             saved_text.append(f"\n\nSaved to: {self._latest_transcript_path}\n", style=f"italic {muted}")
             self.transcript_pane.update(saved_text)
 
-    def _cleanup_wav(self, wav_path: Path) -> None:
-        """Delete temporary WAV file after successful transcription."""
-        try:
-            wav_path.unlink()
-        except OSError:
-            pass
+    def _cleanup_recordings(self) -> None:
+        """Delete all saved recordings and show summary."""
+        recordings = list_recordings()
+        if not recordings:
+            self.transcript_pane.append_text("\nNo recordings to clean up.\n")
+            return
+        count, total_bytes = delete_all_recordings()
+        if total_bytes >= 1_048_576:
+            size_str = f"{total_bytes / 1_048_576:.1f} MB"
+        else:
+            size_str = f"{total_bytes / 1024:.1f} KB"
+        self.transcript_pane.append_text(
+            f"\nDeleted {count} recording{'s' if count != 1 else ''} ({size_str} freed).\n"
+        )
 
     async def _run_query(self, question: str) -> None:
         """Run a RAG query — show picker if multiple transcripts exist."""
@@ -1116,6 +1125,8 @@ class OpenMicApp(App):
             self.exit()
         elif command == "/help":
             self.action_show_help()
+        elif command == "/cleanup-recordings":
+            self._cleanup_recordings()
         elif command == "/verbose":
             self._verbose = not self._verbose
             self.transcriber.verbose = self._verbose
