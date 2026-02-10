@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
+import yaml
 
 from openmic.notes import generate_meeting_notes, generate_notes_for_latest, get_existing_notes, NOTES_PROMPT
 
@@ -63,7 +64,7 @@ class TestGenerateMeetingNotes:
 
         with patch("openmic.notes.get_llm") as mock_get_llm, \
              patch("openmic.notes.LLMChain", return_value=mock_chain):
-            content, notes_path = generate_meeting_notes(transcript_path)
+            content, notes_path, used_cache = generate_meeting_notes(transcript_path)
 
         assert notes_path.exists()
         assert notes_path.parent == notes_dir
@@ -71,6 +72,7 @@ class TestGenerateMeetingNotes:
         assert "# Meeting Notes" in content
         assert "Jun 15th 2025, 2:30 PM" in content
         assert "database migration" in content.lower() or "PostgreSQL" in content
+        assert used_cache is False
 
     def test_notes_content_has_header(self, storage_dirs):
         """Generated notes include a header and source reference."""
@@ -84,9 +86,9 @@ class TestGenerateMeetingNotes:
 
         with patch("openmic.notes.get_llm"), \
              patch("openmic.notes.LLMChain", return_value=mock_chain):
-            content, _ = generate_meeting_notes(transcript_path)
+            content, _, _ = generate_meeting_notes(transcript_path)
 
-        assert content.startswith("# Meeting Notes")
+        assert "# Meeting Notes" in content
         assert "Jun 15th 2025, 2:30 PM" in content
 
     def test_llm_chain_receives_transcript(self, storage_dirs):
@@ -105,6 +107,46 @@ class TestGenerateMeetingNotes:
             generate_meeting_notes(transcript_path)
 
         mock_chain.run.assert_called_once_with(transcript=transcript_text)
+
+    def test_notes_include_yaml_frontmatter(self, storage_dirs):
+        """Generated notes include YAML frontmatter with template ID."""
+        transcripts_dir, _ = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("# Transcript\n\nContent.\n\n")
+
+        mock_chain = MagicMock()
+        mock_chain.run.return_value = "## Notes"
+
+        with patch("openmic.notes.get_llm"), \
+             patch("openmic.notes.LLMChain", return_value=mock_chain):
+            content, _, _ = generate_meeting_notes(transcript_path)
+
+        assert content.startswith("---\n")
+        # Parse frontmatter
+        parts = content.split("---", 2)
+        frontmatter = yaml.safe_load(parts[1])
+        assert frontmatter["template"] == "default"
+        assert "generated" in frontmatter
+
+    def test_notes_with_specific_template(self, storage_dirs):
+        """Notes can be generated with a specific template ID."""
+        transcripts_dir, _ = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("# Transcript\n\nContent.\n\n")
+
+        mock_chain = MagicMock()
+        mock_chain.run.return_value = "## Concise Notes"
+
+        with patch("openmic.notes.get_llm"), \
+             patch("openmic.notes.LLMChain", return_value=mock_chain):
+            content, _, used_cache = generate_meeting_notes(transcript_path, template_id="concise")
+
+        assert used_cache is False
+        parts = content.split("---", 2)
+        frontmatter = yaml.safe_load(parts[1])
+        assert frontmatter["template"] == "concise"
 
 
 class TestGenerateNotesForLatest:
@@ -132,34 +174,77 @@ class TestGenerateNotesForLatest:
             result = generate_notes_for_latest()
 
         assert result is not None
-        content, path = result
+        content, path, used_cache = result
         assert "# Meeting Notes" in content
         assert path.name == "2025-12-31_23-59_notes.md"
+        assert used_cache is False
+
+    def test_generates_for_latest_with_template(self, storage_dirs):
+        """Generates notes for latest transcript using specified template."""
+        transcripts_dir, _ = storage_dirs
+
+        latest = transcripts_dir / "2025-12-31_23-59.md"
+        latest.write_text("# Latest\n\nContent.\n\n")
+
+        mock_chain = MagicMock()
+        mock_chain.run.return_value = "Technical notes"
+
+        with patch("openmic.notes.get_latest_transcript", return_value=latest), \
+             patch("openmic.notes.get_llm"), \
+             patch("openmic.notes.LLMChain", return_value=mock_chain):
+            result = generate_notes_for_latest(template_id="technical")
+
+        assert result is not None
+        content, _, _ = result
+        parts = content.split("---", 2)
+        frontmatter = yaml.safe_load(parts[1])
+        assert frontmatter["template"] == "technical"
 
 
 class TestNotesCaching:
     """BUG-3: Notes should not be regenerated if they already exist."""
 
-    def test_returns_cached_notes_when_exist(self, storage_dirs):
-        """If notes already exist for a transcript, return them without LLM call."""
+    def test_returns_cached_notes_same_template(self, storage_dirs):
+        """If notes exist with same template, return cached without LLM call."""
         transcripts_dir, notes_dir = storage_dirs
 
         transcript_path = transcripts_dir / "2025-06-15_14-30.md"
         transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
 
-        cached_content = "# Meeting Notes\n\nCached notes content"
+        cached_content = "---\ntemplate: default\ngenerated: '2025-06-15T14:30:00'\n---\n\n# Meeting Notes\n\nCached"
         notes_path = notes_dir / "2025-06-15_14-30_notes.md"
         notes_path.write_text(cached_content)
 
         with patch("openmic.notes.get_llm") as mock_llm, \
              patch("openmic.notes.LLMChain") as mock_chain_cls:
-            content, path = generate_meeting_notes(transcript_path)
+            content, path, used_cache = generate_meeting_notes(transcript_path, template_id="default")
 
         # LLM should NOT be called
         mock_llm.assert_not_called()
         mock_chain_cls.assert_not_called()
         assert content == cached_content
         assert path == notes_path
+        assert used_cache is True
+
+    def test_returns_cached_when_different_template(self, storage_dirs):
+        """If notes exist with different template, still returns cached (caller handles overwrite)."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
+
+        cached_content = "---\ntemplate: default\ngenerated: '2025-06-15T14:30:00'\n---\n\n# Meeting Notes\n\nCached"
+        notes_path = notes_dir / "2025-06-15_14-30_notes.md"
+        notes_path.write_text(cached_content)
+
+        with patch("openmic.notes.get_llm") as mock_llm, \
+             patch("openmic.notes.LLMChain") as mock_chain_cls:
+            content, path, used_cache = generate_meeting_notes(transcript_path, template_id="concise")
+
+        # LLM should NOT be called — caller must handle the overwrite prompt
+        mock_llm.assert_not_called()
+        mock_chain_cls.assert_not_called()
+        assert used_cache is True
 
     def test_generates_when_no_cache(self, storage_dirs):
         """If no cached notes exist, generate them via LLM."""
@@ -173,11 +258,12 @@ class TestNotesCaching:
 
         with patch("openmic.notes.get_llm"), \
              patch("openmic.notes.LLMChain", return_value=mock_chain):
-            content, path = generate_meeting_notes(transcript_path)
+            content, path, used_cache = generate_meeting_notes(transcript_path)
 
         # LLM should be called
         mock_chain.run.assert_called_once()
         assert "# Meeting Notes" in content
+        assert used_cache is False
 
     def test_get_existing_notes_found(self, storage_dirs):
         """get_existing_notes returns content when notes file exists."""
@@ -191,9 +277,26 @@ class TestNotesCaching:
 
         result = get_existing_notes(transcript_path)
         assert result is not None
-        content, path = result
+        content, path, template_id = result
         assert content == "cached notes"
         assert path == notes_path
+        assert template_id is None  # Old format without frontmatter
+
+    def test_get_existing_notes_with_frontmatter(self, storage_dirs):
+        """get_existing_notes extracts template_id from YAML frontmatter."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("transcript")
+
+        notes_content = "---\ntemplate: concise\ngenerated: '2025-06-15T14:30:00'\n---\n\n# Notes"
+        notes_path = notes_dir / "2025-06-15_14-30_notes.md"
+        notes_path.write_text(notes_content)
+
+        result = get_existing_notes(transcript_path)
+        assert result is not None
+        content, path, template_id = result
+        assert template_id == "concise"
 
     def test_get_existing_notes_not_found(self, storage_dirs):
         """get_existing_notes returns None when no notes file exists."""
@@ -204,6 +307,44 @@ class TestNotesCaching:
 
         result = get_existing_notes(transcript_path)
         assert result is None
+
+
+class TestBackwardCompatibility:
+    """Notes without YAML frontmatter (old format) continue to work."""
+
+    def test_old_notes_treated_as_no_template(self, storage_dirs):
+        """Old notes without frontmatter return template_id=None."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("transcript")
+
+        old_notes = "# Meeting Notes\n\n*Jun 15th 2025, 2:30 PM*\n\nOld content"
+        notes_path = notes_dir / "2025-06-15_14-30_notes.md"
+        notes_path.write_text(old_notes)
+
+        result = get_existing_notes(transcript_path)
+        assert result is not None
+        _, _, template_id = result
+        assert template_id is None
+
+    def test_old_notes_returned_as_cached(self, storage_dirs):
+        """Old notes are still returned as cached (not regenerated)."""
+        transcripts_dir, notes_dir = storage_dirs
+
+        transcript_path = transcripts_dir / "2025-06-15_14-30.md"
+        transcript_path.write_text("# Transcript\n\nContent.\n\n")
+
+        old_notes = "# Meeting Notes\n\nOld cached notes"
+        notes_path = notes_dir / "2025-06-15_14-30_notes.md"
+        notes_path.write_text(old_notes)
+
+        with patch("openmic.notes.get_llm") as mock_llm:
+            content, path, used_cache = generate_meeting_notes(transcript_path)
+
+        mock_llm.assert_not_called()
+        assert content == old_notes
+        assert used_cache is True
 
 
 class TestNotesPrompt:

@@ -128,18 +128,20 @@ def rename_transcript(old_path: Path, new_name: str) -> Path:
     return new_path
 
 
-def save_notes(content: str, transcript_path: Path) -> Path:
+def save_notes(content: str, transcript_path: Path, template_id: str = "default") -> Path:
     """Save generated notes alongside source transcript.
 
     Args:
-        content: The generated notes content
+        content: The generated notes content (should include YAML frontmatter with template metadata)
         transcript_path: Path to the source transcript
+        template_id: ID of the template used (included for API consistency, stored in frontmatter)
 
     Returns:
         Path to the saved notes file
     """
     ensure_dirs()
 
+    # Keep simple filename - template is stored in frontmatter
     notes_filename = transcript_path.stem + "_notes.md"
     notes_path = NOTES_DIR / notes_filename
     notes_path.write_text(content)

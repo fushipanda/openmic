@@ -12,9 +12,9 @@ from rich.markdown import Markdown as RichMarkdown
 from rich.text import Text
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Input, OptionList, Static
+from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.theme import Theme
@@ -325,7 +325,7 @@ HELP_COMMANDS = [
     ("/history", "List saved transcripts"),
     ("/transcript <n>", "View transcript by number or name"),
     ("/query <question>", "Ask a question about your transcripts"),
-    ("/notes", "Generate structured meeting notes"),
+    ("/notes", "Generate notes (with template selection)"),
     ("/name <name>", "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose", "Toggle debug output"),
@@ -519,6 +519,161 @@ def _date_header(dt: datetime) -> str:
     return dt.strftime(f"%b {day}{suffix} %Y")
 
 
+class TemplatePickerScreen(ModalScreen[str | None]):
+    """Modal popup for selecting a note template."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close"),
+    ]
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    DEFAULT_CSS = """
+    TemplatePickerScreen {
+        align: center middle;
+    }
+
+    TemplatePickerScreen > Vertical {
+        width: 72;
+        max-height: 80%;
+        background: $surface;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    TemplatePickerScreen > Vertical > Static {
+        width: 100%;
+        height: auto;
+    }
+
+    TemplatePickerScreen > Vertical > OptionList {
+        height: auto;
+        max-height: 24;
+        background: $surface;
+        border: none;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(id="template-picker-title")
+            yield OptionList(id="template-picker-list")
+
+    def on_mount(self) -> None:
+        from openmic.templates import TemplateManager
+
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+
+        title = Text("Select Note Template", style=f"bold {primary}")
+        self.query_one("#template-picker-title").update(title)
+
+        option_list = self.query_one("#template-picker-list", OptionList)
+        template_manager = TemplateManager()
+
+        # Get built-in and user templates
+        builtin_templates = template_manager.get_builtin_templates()
+        user_templates = template_manager.get_user_templates()
+
+        # Add built-in templates
+        if builtin_templates:
+            header = Text("  Built-in Templates", style="bold")
+            option_list.add_option(Option(header, disabled=True))
+
+            for template in sorted(builtin_templates, key=lambda t: t.id):
+                label = Text()
+                label.append(f"  {template.name}", style=f"bold {theme.foreground or '#e8e8e8'}")
+                label.append("\n")
+                label.append(f"    {template.description}", style=_muted_color(theme))
+                option_list.add_option(Option(label, id=template.id))
+
+        # Add separator and user templates if any exist
+        if user_templates:
+            option_list.add_option(None)  # Separator
+            header = Text("  Custom Templates", style="bold")
+            option_list.add_option(Option(header, disabled=True))
+
+            for template in sorted(user_templates, key=lambda t: t.id):
+                label = Text()
+                label.append(f"  {template.name}", style=f"bold {theme.foreground or '#e8e8e8'}")
+                label.append("\n")
+                label.append(f"    {template.description}", style=_muted_color(theme))
+                option_list.add_option(Option(label, id=template.id))
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option.id:
+            self.dismiss(event.option.id)
+
+
+class ConfirmOverwriteScreen(ModalScreen[bool]):
+    """Modal prompt to confirm overwriting existing notes with a different template."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close"),
+    ]
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    DEFAULT_CSS = """
+    ConfirmOverwriteScreen {
+        align: center middle;
+    }
+
+    ConfirmOverwriteScreen > Vertical {
+        width: 60;
+        height: auto;
+        background: $surface;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    ConfirmOverwriteScreen > Vertical > Static {
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    ConfirmOverwriteScreen > Vertical > Horizontal {
+        width: 100%;
+        height: auto;
+        align: center middle;
+    }
+
+    ConfirmOverwriteScreen > Vertical > Horizontal > Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, existing_template: str, new_template: str) -> None:
+        super().__init__()
+        self._existing_template = existing_template
+        self._new_template = new_template
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(id="overwrite-message")
+            with Horizontal():
+                yield Button("Replace", variant="primary", id="btn-replace")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_mount(self) -> None:
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+
+        msg = Text()
+        msg.append("Notes already exist", style=f"bold {primary}")
+        msg.append(f"\n\nGenerated with: ", style="")
+        msg.append(self._existing_template, style="bold")
+        msg.append(f"\nReplace with: ", style="")
+        msg.append(self._new_template, style="bold")
+        self.query_one("#overwrite-message").update(msg)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-replace")
+
+
 class TranscriptPickerScreen(ModalScreen[Path | None]):
     """Modal popup for selecting a transcript."""
 
@@ -692,6 +847,9 @@ class OpenMicApp(App):
         self._session_name: str | None = None
         self._awaiting_session_name = False
         self._viewing = False  # True when viewing a transcript/notes (Esc returns to home)
+        # Ensure user templates directory exists
+        self._user_templates_dir = CONFIG_DIR / "templates"
+        self._user_templates_dir.mkdir(parents=True, exist_ok=True)
 
     def compose(self) -> ComposeResult:
         yield self.status_bar
@@ -926,33 +1084,97 @@ class OpenMicApp(App):
             self.transcript_pane.set_text("No transcripts available to generate notes from.\n")
             return
         if len(transcripts) == 1:
-            await self._generate_notes_for_path(transcripts[0])
+            self._show_template_picker(transcripts[0])
             return
 
         def on_selected(path: Path | None) -> None:
             if path is not None:
-                self.call_later(self._generate_notes_for_path, path)
+                self._show_template_picker(path)
 
         self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
 
-    async def _generate_notes_for_path(self, transcript_path: Path) -> None:
-        """Generate meeting notes for a specific transcript."""
-        was_cached = get_existing_notes(transcript_path) is not None
+    def _show_template_picker(self, transcript_path: Path) -> None:
+        """Show template picker, then generate notes with selected template."""
+        def on_template_selected(template_id: str | None) -> None:
+            if template_id is not None:
+                self.call_later(self._generate_notes_with_template, transcript_path, template_id)
+
+        self.push_screen(TemplatePickerScreen(), on_template_selected)
+
+    async def _generate_notes_with_template(self, transcript_path: Path, template_id: str) -> None:
+        """Generate notes with a specific template, handling overwrite logic."""
+        from openmic.templates import TemplateManager
+
+        existing = get_existing_notes(transcript_path)
+        if existing is not None:
+            _, _, existing_template = existing
+            # Same template — use cached notes
+            if existing_template == template_id:
+                await self._generate_notes_for_path(transcript_path, template_id)
+                return
+            # Different template — ask to overwrite
+            template_manager = TemplateManager()
+            existing_name = existing_template or "Standard Meeting Notes"
+            if existing_template:
+                tmpl = template_manager.get_template(existing_template)
+                if tmpl:
+                    existing_name = tmpl.name
+            new_tmpl = template_manager.get_template(template_id)
+            new_name = new_tmpl.name if new_tmpl else template_id
+
+            def on_confirm(replace: bool) -> None:
+                if replace:
+                    self.call_later(self._generate_notes_for_path, transcript_path, template_id, True)
+                else:
+                    # Show existing notes without regenerating
+                    self.call_later(self._generate_notes_for_path, transcript_path, existing_template or "default")
+
+            self.push_screen(ConfirmOverwriteScreen(existing_name, new_name), on_confirm)
+            return
+
+        # No existing notes — generate directly
+        await self._generate_notes_for_path(transcript_path, template_id)
+
+    async def _generate_notes_for_path(
+        self, transcript_path: Path, template_id: str = "default", force_regenerate: bool = False
+    ) -> None:
+        """Generate meeting notes for a specific transcript.
+
+        Args:
+            transcript_path: Path to the transcript file
+            template_id: Template ID to use for generation
+            force_regenerate: If True, delete existing notes and regenerate
+        """
+        from openmic.templates import TemplateManager
+
+        # If forcing regeneration, delete existing notes first
+        if force_regenerate:
+            notes_path = NOTES_DIR / (transcript_path.stem + "_notes.md")
+            if notes_path.exists():
+                notes_path.unlink()
+
+        existing = get_existing_notes(transcript_path)
+        will_use_cache = existing is not None and existing[2] == template_id
+
         muted = _muted_color(self.current_theme)
-        if was_cached:
+        template_manager = TemplateManager()
+        tmpl = template_manager.get_template(template_id)
+        template_name = tmpl.name if tmpl else template_id
+
+        if will_use_cache:
             processing = Text("Loading saved notes...", style=f"italic {muted}")
         else:
-            processing = Text("Generating meeting notes...", style=f"italic {muted}")
+            processing = Text(f"Generating notes ({template_name})...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
         self.transcript_pane._text = ""
         self.transcript_pane.update(processing)
         try:
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: generate_meeting_notes(transcript_path),
+                lambda: generate_meeting_notes(transcript_path, template_id),
             )
-            notes_content, notes_path = result
-            if not was_cached:
+            notes_content, notes_path, used_cache = result
+            if not used_cache:
                 self.usage_tracker.add_llm_call()
                 self.status_bar.refresh_usage()
             self.transcript_pane.set_markdown(f"{notes_content}\n\n---\n\n*Saved to: {notes_path}*\n")
