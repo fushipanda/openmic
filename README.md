@@ -48,8 +48,8 @@ OpenMic is a terminal-based meeting transcription tool that:
 - 📝 **Generates meeting notes** with structured summaries, action items, and decisions
 - 🎨 **Beautiful TUI** with themes, keyboard shortcuts, and an intuitive interface
 
-<!-- Placeholder for demo GIF - add your recording here -->
-<!-- ![OpenMic Demo](./assets/demo.gif) -->
+![OpenMic Main Interface](./assets/demo_menu.png)
+*OpenMic's clean TUI interface with command input and help menu*
 
 ---
 
@@ -188,6 +188,9 @@ When you stop recording, OpenMic processes the audio through ElevenLabs batch AP
 ### 🔍 RAG-Powered Querying
 Ask natural language questions about past meetings. OpenMic uses LangChain with FAISS vector search to find relevant transcript segments, then generates accurate answers using your chosen LLM.
 
+![RAG Query Example](./assets/demo_query.png)
+*Ask questions about past meetings and get AI-powered answers*
+
 ### 📝 Structured Meeting Notes
 Generate professional meeting notes with a single command. Choose from multiple templates:
 - **Standard** - Comprehensive notes with agenda, discussion points, decisions, action items
@@ -196,6 +199,9 @@ Generate professional meeting notes with a single command. Choose from multiple 
 - **Team Meeting** - Team updates, blockers, priorities
 - **1:1** - Personal discussion points and follow-ups
 - **Executive** - High-level strategic summary
+
+![Meeting Notes Generation](./assets/demo_notes.png)
+*Auto-generated structured notes with agenda, decisions, and action items*
 
 ### ⏸️ Pause/Resume
 Pause recording mid-meeting without ending the session. The audio file and WebSocket connection pause together, resuming seamlessly when you're ready.
