@@ -15,11 +15,20 @@
 
 **This project is an experiment in AI-assisted development using Claude Code's Ralph Loop functionality.**
 
-I created OpenMic during a single extended Ralph Loop session to explore what could be built with iterative AI assistance. The goal was to create something genuinely useful—a meeting transcription tool I actually wanted—while testing Claude Code's capabilities for complex, multi-component projects.
+I created OpenMic during a single extended Ralph Loop session to explore what could be built with iterative AI assistance. The goal was to create a genuinely useful  meeting transcription tool (in a short amount of time) that I actually wanted, and while testing Claude Code's capabilities for complex projects.
+
+**Process**
+The process for this project is relatively simple. Create a feature list and a set of bugs to be fixed within the CLAUDE.md, create a Ralph Loop using the Claude plugin and instruct the agent to create comprehensive tests based on the set of todos. Then to approach one todo at a time and once reviewed and successfully tested to push the new change to the repo.
+
+**How I utilise this project**
+Simply for recording meetings, I've found myself enjoying a terminal based workflow and wanted to incorporate a meeting tool using architecture I am familiar with. I've created my own custom prompt that works for those I collaborate with.
+
+**Inspiration from the Project**
+Inspired by some of the TUI's I have recently worked with, primarily [OpenCode](https://github.com/anomalyco/opencode/)
 
 ### What is Ralph Loop?
 
-Ralph Loop is Claude Code's agentic workflow that enables continuous iteration: I provided feedback and requirements, Claude implemented features, fixed bugs, and added tests—all in a conversational loop. This README, the 163 passing tests, the comprehensive architecture, and all 50+ commits were produced through that collaboration.
+Ralph Loop is Claude Code's agentic workflow that enables continuous iteration: I provided feedback and requirements, Claude implemented features, fixed bugs, and added tests, all in a conversational loop. This README, the 163 passing tests, the comprehensive architecture, and all 50+ commits were produced through that collaboration.
 
 ### Development Process
 
