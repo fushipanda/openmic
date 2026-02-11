@@ -26,7 +26,8 @@ The process for this project is relatively simple. Create a feature list and a s
 Simply for recording meetings, I've found myself enjoying a terminal based workflow and wanted to incorporate a meeting tool using architecture I am familiar with. I've created my own custom prompt that works for those I collaborate with.
 
 **Inspiration from the Project**
-Inspired by some of the TUI's I have recently worked with, primarily [OpenCode](https://github.com/anomalyco/opencode/)
+
+Inspired by some of the TUI's I have recently worked with, primarily [OpenCode](https://github.com/anomalyco/opencode/).
 
 ### What is Ralph Loop?
 
