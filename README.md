@@ -1,48 +1,148 @@
-# openmic
+# OpenMic
 
-A CLI/TUI meeting transcription tool built with Python and Textual. Records audio, streams live transcription to screen via ElevenLabs Scribe realtime, then runs a diarized batch transcription on stop. Saved transcripts are queryable via LangChain RAG, with a command to generate structured meeting notes.
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Built with Claude Code](https://img.shields.io/badge/built_with-Claude_Code-blueviolet.svg)](https://github.com/anthropics/claude-code)
+[![Textual](https://img.shields.io/badge/TUI-Textual-FF69B4.svg)](https://textual.textualize.io/)
+[![Tests: 163/163](https://img.shields.io/badge/tests-163%2F163-brightgreen.svg)](#development)
+
+> A beautiful CLI/TUI for meeting transcription with live preview, speaker diarization, and RAG-powered querying.
+
+[About](#about-this-project) • [Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development)
+
+---
+
+## About This Project
+
+**This project is an experiment in AI-assisted development using Claude Code's Ralph Loop functionality.**
+
+I created OpenMic during a single extended Ralph Loop session to explore what could be built with iterative AI assistance. The goal was to create something genuinely useful—a meeting transcription tool I actually wanted—while testing Claude Code's capabilities for complex, multi-component projects.
+
+### What is Ralph Loop?
+
+Ralph Loop is Claude Code's agentic workflow that enables continuous iteration: I provided feedback and requirements, Claude implemented features, fixed bugs, and added tests—all in a conversational loop. This README, the 163 passing tests, the comprehensive architecture, and all 50+ commits were produced through that collaboration.
+
+### Development Process
+
+- **One session, continuous iteration** - Built from scratch to current state in a single Ralph Loop
+- **163 automated tests** - Comprehensive coverage for storage, transcription, RAG, and notes
+- **50+ commits** - All following proper git hygiene and semantic commit messages
+- **Full transparency** - See [CLAUDE.md](./CLAUDE.md) for the complete development instructions and TODO history
+
+### Current Status
+
+⚠️ **Work in Progress** - This is a functional proof-of-concept but still evolving. The core features work well (recording, transcription, RAG querying, notes generation), but there are known limitations documented below.
+
+**Key takeaway**: This demonstrates what's possible when using AI as a development partner—not just for code generation, but for architecture, testing, debugging, and iterative refinement.
+
+---
+
+## What It Does
+
+OpenMic is a terminal-based meeting transcription tool that:
+
+- 🎤 **Records audio** from your microphone during meetings
+- ⚡ **Streams live transcription** to your screen in real-time (via ElevenLabs Scribe)
+- 👥 **Identifies speakers** automatically with diarization (Speaker 1, Speaker 2, etc.)
+- 💾 **Saves transcripts** as markdown files with timestamps
+- 🔍 **Answers questions** about past meetings using RAG (retrieval-augmented generation)
+- 📝 **Generates meeting notes** with structured summaries, action items, and decisions
+- 🎨 **Beautiful TUI** with themes, keyboard shortcuts, and an intuitive interface
+
+<!-- Placeholder for demo GIF - add your recording here -->
+<!-- ![OpenMic Demo](./assets/demo.gif) -->
+
+---
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.12 or higher
+- A microphone
+- API keys (see [Configuration](#configuration))
+
+### Setup
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/openmic.git
+git clone https://github.com/fushipanda/openmic.git
 cd openmic
 
 # Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -e ".[anthropic]"  # or [openai] for OpenAI
+# Install dependencies (choose your LLM provider)
+pip install -e ".[anthropic]"  # For Claude (Anthropic)
+# or
+pip install -e ".[openai]"     # For GPT-4/3.5 (OpenAI)
 ```
+
+---
 
 ## Configuration
 
-Copy the example environment file and fill in your API keys:
+### API Keys Required
+
+OpenMic needs three API keys:
+
+1. **ElevenLabs** - For audio transcription (realtime + batch)
+2. **OpenAI** - For embeddings (RAG search) - *always required, even if using Claude*
+3. **Anthropic OR OpenAI** - For LLM completions (answering queries, generating notes)
+
+### Setup `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your configuration:
+Edit `.env` with your keys:
 
-```
+```bash
+# Required: Transcription service
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
-LLM_PROVIDER=anthropic       # or openai
-ANTHROPIC_API_KEY=your_anthropic_api_key
-OPENAI_API_KEY=your_openai_api_key  # Always required for embeddings, even with anthropic
+
+# Required: Embeddings for RAG (always needed)
+OPENAI_API_KEY=your_openai_api_key
+
+# Required: LLM provider (choose one)
+LLM_PROVIDER=anthropic  # or "openai"
+ANTHROPIC_API_KEY=your_anthropic_api_key  # if using Claude
+# OPENAI_API_KEY already set above for embeddings
 ```
 
-**Note:** `OPENAI_API_KEY` is required regardless of your `LLM_PROVIDER` setting, since Anthropic does not provide an embeddings API. Embeddings are used for RAG queries (`/query` command).
+> **Why OpenAI API key if using Claude?**
+> Anthropic doesn't provide an embeddings API. OpenMic uses OpenAI embeddings for the RAG search feature (`/query` command), while using Claude (or GPT) for generating answers and notes.
+
+---
 
 ## Usage
 
-Start the application:
+### Start the Application
 
 ```bash
 openmic
 ```
+
+### Quick Example Workflow
+
+```bash
+# Start recording a meeting
+> /start standup
+
+# [speak for 5 minutes... live transcript appears on screen]
+
+# Stop and save (diarization runs automatically)
+> /stop
+
+# Ask a question about the meeting
+> /query What action items were mentioned?
+
+# Generate structured meeting notes
+> /notes
+```
+
+---
 
 ## Commands
 
@@ -51,44 +151,97 @@ openmic
 | `/start [name]` | Start recording (optionally with session name) |
 | `/stop [name]` | Stop recording and process with diarization |
 | `/pause` | Pause recording (resume with `/start`) |
-| `/history` | Browse saved transcripts in a popup |
-| `/transcript <n>` | View a transcript by number or name |
-| `/query <question>` | Ask a question about a specific transcript |
-| `/notes` | Generate structured notes from a chosen transcript |
-| `/name <name>` | Rename the latest transcript |
-| `/help` | Show help popup |
+| `/history` | Browse saved transcripts in a date-grouped popup |
+| `/transcript <n>` | View a specific transcript by number or name |
+| `/query <question>` | Ask a question about a transcript (uses RAG) |
+| `/notes` | Generate structured notes from a transcript |
+| `/name <name>` | Rename the most recent transcript |
+| `/help` | Show help popup with all commands and shortcuts |
 | `/verbose` | Toggle debug output |
+| `/exit` | Quit the application |
 
-Aliases: `/transcripts`, `/transcript` (no args) also open the transcript browser.
+**Aliases**: `/transcripts`, `/history`, `/transcript` (no args) all open the transcript browser.
+
+---
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+R` | Toggle recording / pause |
-| `Ctrl+T` | Cycle theme |
+| `Ctrl+T` | Cycle through themes (OpenMic, Nord, etc.) |
+| `Ctrl+?` | Show help popup |
+| `Esc` | Return to home screen (when viewing transcript/notes) |
+| `Tab` | Autocomplete commands |
 | `Ctrl+C` | Quit application |
-| `?` | Show help popup |
+
+---
 
 ## Features
 
-- **Live Transcription**: See words appear as you speak via ElevenLabs Scribe realtime, with natural paragraph breaks
-- **Speaker Diarization**: Final transcripts include speaker labels (Speaker 1, Speaker 2, etc.)
-- **RAG Querying**: Ask questions about a specific meeting transcript via picker
-- **Meeting Notes**: Auto-generate structured notes with agenda, key points, decisions, and action items
-- **Session Naming**: Name your meetings for easier organization, or name after recording
-- **Pause/Resume**: Pause recording without ending the session
-- **Transcript Browser**: Browse transcripts grouped by date in a modal popup
-- **Scrollable Transcript**: Scroll through live transcript with smart auto-scroll
-- **Help Popup**: Press `?` or type `/help` for a quick reference
-- **Themes**: Switch between OpenMic and Nord themes with `Ctrl+T`
+### 🎤 Live Transcription
+Words appear on screen as you speak via ElevenLabs Scribe WebSocket streaming. Transcription flows naturally with automatic paragraph breaks based on voice activity detection.
+
+### 👥 Speaker Diarization
+When you stop recording, OpenMic processes the audio through ElevenLabs batch API with speaker diarization enabled. The final transcript includes speaker labels (Speaker 1, Speaker 2, etc.) automatically.
+
+### 🔍 RAG-Powered Querying
+Ask natural language questions about past meetings. OpenMic uses LangChain with FAISS vector search to find relevant transcript segments, then generates accurate answers using your chosen LLM.
+
+### 📝 Structured Meeting Notes
+Generate professional meeting notes with a single command. Choose from multiple templates:
+- **Standard** - Comprehensive notes with agenda, discussion points, decisions, action items
+- **Concise** - Brief summary focused on outcomes
+- **Technical** - Code snippets, technical decisions, architecture discussions
+- **Team Meeting** - Team updates, blockers, priorities
+- **1:1** - Personal discussion points and follow-ups
+- **Executive** - High-level strategic summary
+
+### ⏸️ Pause/Resume
+Pause recording mid-meeting without ending the session. The audio file and WebSocket connection pause together, resuming seamlessly when you're ready.
+
+### 📁 Transcript Browser
+Browse all your saved transcripts in a beautiful modal popup, organized by date (Today, Yesterday, or formatted date). See at a glance which transcripts still need notes generated (starred indicators).
+
+### 🎨 Themes
+Switch between carefully designed dark themes with `Ctrl+T`:
+- **OpenMic** - Custom theme with vibrant accents
+- **Nord** - Arctic, north-bluish color palette
+- Plus additional Textual built-in themes
+
+### 📊 Session Tracking
+Real-time display of API usage in the current session:
+- Audio transcription time (ElevenLabs credits)
+- LLM calls and token counts (Claude/GPT credits)
+
+---
 
 ## File Storage
 
-- Transcripts: `transcripts/YYYY-MM-DD_HH-MM.md` (or with session name)
-- Meeting notes: `notes/YYYY-MM-DD_HH-MM_notes.md`
+Transcripts and notes are saved as markdown files:
+
+```
+transcripts/
+  ├── 2026-02-11_14-30.md              # Unnamed session
+  ├── 2026-02-11_15-45_standup.md     # Named session
+  └── ...
+
+notes/
+  ├── 2026-02-11_14-30_notes.md
+  ├── 2026-02-11_15-45_standup_notes.md
+  └── ...
+
+recordings/
+  └── [temporary .wav files, auto-cleaned]
+```
+
+All files use markdown format with frontmatter for metadata and easy readability.
+
+---
 
 ## Architecture
+
+### Data Flow
 
 ```
 During session:
@@ -99,24 +252,48 @@ On stop:
   .wav ──► Scribe batch API (diarize=True) ──► Speaker-labeled transcript
                                             ──► saved to transcripts/
                                             ──► displayed in TUI
+                                            ──► .wav cleaned up
 
 Post-session:
   /query ──► LangChain RAG over transcripts/ ──► answer in TUI
-  /notes ──► LangChain summarisation chain   ──► structured notes
+  /notes ──► LangChain summarization chain   ──► structured notes in notes/
 ```
+
+### Module Layout
+
+```
+openmic/
+├── app.py          # TUI entry point (Textual). All widgets and orchestration.
+├── audio.py        # Mic capture via sounddevice. Writes 16kHz mono WAV.
+├── transcribe.py   # ElevenLabs Scribe (WebSocket realtime + REST batch)
+├── storage.py      # File I/O for transcripts/ and notes/ markdown files
+├── rag.py          # LangChain RAG: FAISS vector store + RetrievalQA chain
+├── notes.py        # LangChain summarization with template support
+└── templates/      # Built-in note templates (markdown + YAML frontmatter)
+```
+
+See [Developer Guide](#developer-guide) below for detailed data flow diagrams.
+
+---
 
 ## Requirements
 
-- Python 3.12+
-- ElevenLabs API key (for transcription)
-- OpenAI API key (for embeddings - always required)
-- Anthropic or OpenAI API key (for LLM - RAG answers and notes generation)
+- **Python 3.12+**
+- **ElevenLabs API key** - For transcription (both realtime and batch)
+- **OpenAI API key** - For embeddings (RAG search)
+- **Anthropic or OpenAI API key** - For LLM completions (answers and notes)
+
+---
 
 ## Development
 
 ### Running Tests
 
-The project includes a comprehensive test suite with 40+ tests covering storage, transcription parsing, RAG pipeline, and notes generation.
+OpenMic includes a comprehensive test suite with **163 passing tests** covering:
+- Storage operations (transcripts, notes, templates)
+- Transcription parsing (diarization, error handling)
+- RAG pipeline (vector search, LLM provider selection)
+- Notes generation (template system, caching)
 
 Install development dependencies:
 
@@ -124,13 +301,13 @@ Install development dependencies:
 pip install -e ".[dev,anthropic,openai]"
 ```
 
-Run tests:
+Run all tests:
 
 ```bash
 pytest
 ```
 
-Run tests with verbose output:
+Run with verbose output:
 
 ```bash
 pytest -v
@@ -140,96 +317,108 @@ Run specific test file:
 
 ```bash
 pytest tests/test_storage.py
+pytest tests/test_rag.py
 ```
 
 ### Test Coverage
 
-- `tests/test_storage.py` - Unit tests for transcript and notes storage (13 tests)
-- `tests/test_transcribe.py` - Unit tests for diarization parsing (8 tests)
-- `tests/test_rag.py` - Integration tests for RAG pipeline (11 tests)
-- `tests/test_notes.py` - Integration tests for notes generation (7 tests)
+- `tests/test_storage.py` - Storage layer (13 tests)
+- `tests/test_transcribe.py` - Transcription parsing (8 tests)
+- `tests/test_rag.py` - RAG pipeline integration (11 tests)
+- `tests/test_notes.py` - Notes generation (7 tests)
+- `tests/test_templates.py` - Template system (8+ tests)
+- `tests/test_app.py` - TUI components (many tests)
 
 ---
 
 ## Developer Guide
 
-### Module layout
+For detailed technical documentation, see the full data flow and architecture diagrams in the code comments. Key highlights:
 
-```
-openmic/
-├── app.py          # TUI entry point. Owns all widgets and orchestrates the others.
-├── audio.py        # Mic capture via sounddevice. Writes 16kHz mono WAV to disk.
-├── transcribe.py   # ElevenLabs client wrappers: RealtimeTranscriber (WebSocket)
-│                   #   and BatchTranscriber (REST upload + diarization parsing).
-├── storage.py      # File I/O: read/write transcripts/ and notes/ as markdown.
-├── rag.py          # LangChain RAG stack: loads transcripts, chunks them,
-│                   #   builds a FAISS index, runs RetrievalQA.
-└── notes.py        # LangChain summarisation chain: prompt → LLM → structured notes.
-```
-
-### Data flow
+### Data Flow Details
 
 ```
 /start
   app._start_recording()
-    ├── audio.AudioRecorder.start()          → opens mic stream, accumulates frames
-    └── transcribe.RealtimeTranscriber.connect()
+    ├── audio.AudioRecorder.start()          → opens mic stream
+    └── transcribe.RealtimeTranscriber.connect() → WebSocket to ElevenLabs
 
   [while recording]
-    audio callback                           → fires on_audio_chunk every 1024 samples
-      └── transcribe.RealtimeTranscriber.send_audio_chunk()   ← stub, see below
+    audio callback → transcribe.send_audio_chunk() → live text updates
 
 /stop
   app._stop_recording()
-    ├── audio.AudioRecorder.stop()           → flushes frames, writes .wav, returns path
+    ├── audio.AudioRecorder.stop()           → saves .wav file
     ├── transcribe.RealtimeTranscriber.disconnect()
     └── app._run_batch_transcription(wav_path)
-          ├── transcribe.BatchTranscriber.transcribe_file()   → uploads to Scribe REST
-          ├── transcribe.BatchTranscriber.parse_diarized_result()
-          ├── storage.save_transcript(segments)               → writes transcripts/*.md
-          ├── app._display_diarized_transcript()              → replaces TUI pane
-          └── app._cleanup_wav()                              → deletes .wav
+          ├── transcribe.BatchTranscriber.transcribe_file()
+          ├── transcribe.parse_diarized_result()
+          ├── storage.save_transcript()
+          ├── app._display_diarized_transcript()
+          └── cleanup .wav
 
 /query <question>
   app._run_query()
     └── rag.TranscriptRAG.query()
-          ├── .refresh()  (if not yet built)
-          │     ├── DirectoryLoader  → reads transcripts/*.md
-          │     ├── FAISS.from_documents()
-          │     └── RetrievalQA chain
-          └── .invoke()  → returns answer string
+          ├── FAISS vector search over transcript chunks
+          └── LLM generates answer from relevant context
 
 /notes
   app._generate_notes()
-    └── notes.generate_notes_for_latest()
-          ├── storage.get_latest_transcript()
-          ├── LLMChain(prompt=NOTES_PROMPT).run()
-          └── storage.save_notes()  → writes notes/*_notes.md
+    └── notes.generate_meeting_notes()
+          ├── Template selection (if first time)
+          ├── LLM summarization with template prompt
+          └── storage.save_notes()
 ```
 
-### Known limitations
+### Known Limitations
 
-- **Embeddings always use OpenAI.** `rag.get_embeddings()` returns
-  `OpenAIEmbeddings()` regardless of `LLM_PROVIDER`. Anthropic does not expose
-  an embeddings API, so an `OPENAI_API_KEY` is required for `/query` even when
-  `LLM_PROVIDER=anthropic`.
-
-- **Vector store is in-memory only.** The FAISS index is rebuilt from disk on
-  every first `/query` in a session. It is not persisted between runs.
-
-- **`LLMChain` / `chain.run()` in notes.py are deprecated** in newer LangChain
-  versions. Works now, but will need updating when the library drops them.
+- **Embeddings always use OpenAI** - Anthropic doesn't provide embeddings API
+- **Vector store is in-memory** - FAISS index rebuilt each session (not persisted)
+- **LangChain deprecations** - `LLMChain` and `chain.run()` are deprecated in newer versions
+- **No real-time streaming to WebSocket yet** - Live preview is a stub (batch transcription works)
 
 ### Extending
 
-- **Swap the vector store:** replace `FAISS` in `rag.py` with ChromaDB or another
-  `langchain_community.vectorstores` backend. The rest of the code is unaware of
-  the choice.
+**Swap vector store**: Replace `FAISS` in `rag.py` with ChromaDB or Pinecone—the rest is abstracted.
 
-- **Swap the LLM provider:** add a new branch in `rag.get_llm()` and install the
-  matching `langchain-<provider>` package. Nothing else needs to change.
+**Swap LLM provider**: Add a branch in `rag.get_llm()` and install the matching `langchain-<provider>` package.
 
-- **Wire up realtime streaming:** fill in `RealtimeTranscriber.send_audio_chunk()`
-  using the ElevenLabs SDK's WebSocket client, and call `self.on_partial` /
-  `self.on_committed` from the message handler. The TUI callbacks in `app.py`
-  are already connected.
+**Add new note templates**: Create markdown files in `~/.config/openmic/templates/` with YAML frontmatter.
+
+---
+
+## Platform Support
+
+| OS | Status | Notes |
+|----|----|-------|
+| **Linux** | ✅ Fully supported | Tested on Arch Linux |
+| **macOS** | ✅ Should work | Intel & Apple Silicon (untested) |
+| **Windows** | ✅ Should work | Use PowerShell or Git Bash (untested) |
+
+---
+
+## Acknowledgments
+
+**Built entirely with [Claude Code](https://github.com/anthropics/claude-code)** using Ralph Loop for iterative development.
+
+- **Textual** - Excellent TUI framework by [Textualize](https://www.textualize.io/)
+- **ElevenLabs Scribe** - High-quality audio transcription with diarization
+- **LangChain** - Flexible framework for RAG and LLM chains
+- **OpenAI & Anthropic** - Embeddings and LLM APIs
+
+---
+
+## License
+
+MIT License - See [LICENSE](./LICENSE) file for details.
+
+---
+
+## Learn More
+
+- **See the development process**: [CLAUDE.md](./CLAUDE.md) - Complete TODO history and architecture decisions
+- **Read the code**: All modules are documented with clear data flow and extension points
+- **Run the tests**: 163 automated tests demonstrate usage patterns
+
+This project is a testament to what's possible with AI-assisted development. The code quality, test coverage, and documentation were all produced through iterative collaboration between human intent and AI execution.
