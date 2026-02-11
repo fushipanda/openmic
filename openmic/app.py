@@ -206,16 +206,14 @@ class StatusBar(Static):
 class TranscriptPane(VerticalScroll):
     """Main pane displaying transcript text, with native scrolling."""
 
+    can_focus = True
+
     def __init__(self) -> None:
         super().__init__()
         self._content = Static("", id="transcript-content")
         self._text = ""
         self._show_banner = True
         self._auto_scroll = True
-
-    @property
-    def allow_vertical_scroll(self) -> bool:
-        return self.is_scrollable
 
     def compose(self) -> ComposeResult:
         yield self._content
@@ -807,7 +805,7 @@ class OpenMicApp(App):
         border: round $primary 50%;
         margin: 1 1 0 1;
         layout: vertical;
-        overflow-y: auto;
+        overflow-y: scroll;
         overflow-x: hidden;
         scrollbar-size-vertical: 0;
     }
@@ -830,6 +828,8 @@ class OpenMicApp(App):
         Binding("ctrl+t", "cycle_theme", "Theme", show=False),
         Binding("ctrl+question_mark", "show_help", "Help", show=False),
         Binding("escape", "go_back", "Back", show=False),
+        Binding("pageup", "scroll_up_page", show=False),
+        Binding("pagedown", "scroll_down_page", show=False),
     ]
 
     def __init__(self) -> None:
@@ -896,6 +896,14 @@ class OpenMicApp(App):
         if self._viewing:
             self._viewing = False
             self.transcript_pane.clear()
+
+    def action_scroll_up_page(self) -> None:
+        """Scroll the transcript pane up by one page."""
+        self.transcript_pane.scroll_page_up(animate=False)
+
+    def action_scroll_down_page(self) -> None:
+        """Scroll the transcript pane down by one page."""
+        self.transcript_pane.scroll_page_down(animate=False)
 
     async def action_toggle_recording(self) -> None:
         """Toggle recording state."""

@@ -580,3 +580,84 @@ class TestTabCycling:
         # Cycling wraps to same item
         dropdown._selected_index = (dropdown._selected_index + 1) % len(dropdown._matches)
         assert dropdown.get_selected() == "/exit"
+
+
+class TestTranscriptPaneScrolling:
+    """BUG-9: TranscriptPane should be scrollable with mouse wheel and Page Up/Down."""
+
+    def test_transcript_pane_overflow_y_scroll(self):
+        """TranscriptPane CSS should use overflow-y: scroll, not auto."""
+        css = OpenMicApp.CSS
+        # Find the TranscriptPane block
+        start = css.index("TranscriptPane {")
+        end = css.index("}", start) + 1
+        pane_css = css[start:end]
+        assert "overflow-y: scroll" in pane_css, (
+            "TranscriptPane should use overflow-y: scroll for reliable scrolling"
+        )
+
+    def test_transcript_pane_scrollbar_hidden(self):
+        """TranscriptPane should hide the scrollbar but still allow scrolling."""
+        css = OpenMicApp.CSS
+        start = css.index("TranscriptPane {")
+        end = css.index("}", start) + 1
+        pane_css = css[start:end]
+        assert "scrollbar-size-vertical: 0" in pane_css
+
+    def test_pageup_binding_exists(self):
+        """Page Up binding should be registered in app bindings."""
+        binding_keys = [b.key for b in OpenMicApp.BINDINGS]
+        assert "pageup" in binding_keys
+
+    def test_pagedown_binding_exists(self):
+        """Page Down binding should be registered in app bindings."""
+        binding_keys = [b.key for b in OpenMicApp.BINDINGS]
+        assert "pagedown" in binding_keys
+
+    def test_pageup_binding_hidden(self):
+        """Page Up binding should not show in footer."""
+        for b in OpenMicApp.BINDINGS:
+            if b.key == "pageup":
+                assert not b.show
+                break
+
+    def test_pagedown_binding_hidden(self):
+        """Page Down binding should not show in footer."""
+        for b in OpenMicApp.BINDINGS:
+            if b.key == "pagedown":
+                assert not b.show
+                break
+
+    def test_scroll_up_page_action_exists(self):
+        """OpenMicApp should have action_scroll_up_page method."""
+        assert hasattr(OpenMicApp, "action_scroll_up_page")
+
+    def test_scroll_down_page_action_exists(self):
+        """OpenMicApp should have action_scroll_down_page method."""
+        assert hasattr(OpenMicApp, "action_scroll_down_page")
+
+    def test_transcript_pane_is_vertical_scroll(self):
+        """TranscriptPane should extend VerticalScroll for native scroll support."""
+        from textual.containers import VerticalScroll
+        assert issubclass(TranscriptPane, VerticalScroll)
+
+    def test_transcript_pane_can_focus(self):
+        """TranscriptPane should be focusable for mouse wheel events."""
+        assert TranscriptPane.can_focus is True
+
+    def test_no_allow_vertical_scroll_override(self):
+        """TranscriptPane should NOT override allow_vertical_scroll (let VerticalScroll handle it)."""
+        # Check that allow_vertical_scroll is not defined directly on TranscriptPane
+        assert "allow_vertical_scroll" not in TranscriptPane.__dict__, (
+            "TranscriptPane should not override allow_vertical_scroll"
+        )
+
+    def test_scroll_actions_delegate_to_transcript_pane(self):
+        """Scroll action methods should call transcript_pane scroll methods."""
+        import inspect
+        up_source = inspect.getsource(OpenMicApp.action_scroll_up_page)
+        down_source = inspect.getsource(OpenMicApp.action_scroll_down_page)
+        assert "transcript_pane" in up_source
+        assert "scroll_page_up" in up_source
+        assert "transcript_pane" in down_source
+        assert "scroll_page_down" in down_source

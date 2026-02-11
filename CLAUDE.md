@@ -63,28 +63,12 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Escape hides the dropdown
 - [x] `_tab_cycling` flag prevents `on_input_changed` from resetting matches during cycling
 
-### BUG-9: TranscriptPane not scrollable with mouse wheel or Page Up/Down
-The main content area (`TranscriptPane`, a `VerticalScroll` widget) doesn't respond to mouse scroll wheel or Page Up/Page Down keys. The scrollbar is intentionally hidden (`scrollbar-size-vertical: 0`) but scrolling itself should still work. The user should be able to scroll through long transcripts and notes using:
-
-- [ ] Mouse scroll wheel (when hovering over the transcript pane)
-- [ ] Page Up / Page Down keys (regardless of which widget has focus)
-- [ ] Keep the scrollbar hidden (no visible scrollbar)
-
-**Root cause analysis — check these in order:**
-
-1. **Focus issue**: The `CommandInput` is likely always focused, so keyboard scroll events (Page Up/Down) go there instead of the transcript pane. Add app-level key bindings for `page_up` and `page_down` that call `self.transcript_pane.scroll_page_up()` and `self.transcript_pane.scroll_page_down()` respectively. These should work regardless of which widget has focus.
-
-2. **Mouse wheel**: Textual's `VerticalScroll` should handle mouse wheel when hovered. If it doesn't work, check whether the inner `Static` widget (`#transcript-content`) is consuming mouse events. The `Static` widget may need `can_focus: false` explicitly or mouse events need to bubble up. Try adding `overflow-y: scroll` instead of `overflow-y: auto` in the `TranscriptPane` CSS if `auto` is preventing scroll when content doesn't trigger overflow detection properly.
-
-3. **CSS check**: The current CSS has both `overflow-y: auto` and `scrollbar-size-vertical: 0`. Ensure `overflow-y` is set to `scroll` (not `auto`) so scrolling is always enabled even if Textual thinks content fits. The `scrollbar-size-vertical: 0` will keep the scrollbar hidden while allowing scroll functionality.
-
-4. **Arrow keys**: Optionally, also handle `up`/`down` arrow keys to scroll the transcript pane when the command input is not actively being typed into (i.e. when it's empty). This is a nice-to-have, not required.
-
-**Where to change:**
-- CSS for `TranscriptPane` in `OpenMicApp.CSS` (app.py ~line 803): change `overflow-y: auto` to `overflow-y: scroll`
-- Add `Binding("pageup", "page_up", show=False)` and `Binding("pagedown", "page_down", show=False)` to `OpenMicApp.BINDINGS`
-- Add `action_page_up()` and `action_page_down()` methods to `OpenMicApp` that delegate to `self.transcript_pane.scroll_page_up()` / `self.transcript_pane.scroll_page_down()`
-- If mouse scroll still doesn't work, check if `TranscriptPane` needs `can_focus = True` set explicitly, or if `allow_vertical_scroll` property (line 217) is interfering
+### ✅ BUG-9: TranscriptPane not scrollable with mouse wheel or Page Up/Down
+- [x] Changed `overflow-y: auto` to `overflow-y: scroll` in TranscriptPane CSS
+- [x] Added app-level `pageup`/`pagedown` bindings that delegate to `transcript_pane.scroll_page_up()`/`scroll_page_down()`
+- [x] Removed `allow_vertical_scroll` override that was interfering with native scroll
+- [x] Set `can_focus = True` on TranscriptPane for mouse wheel event handling
+- [x] Scrollbar remains hidden (`scrollbar-size-vertical: 0`)
 
 ---
 
@@ -98,7 +82,7 @@ All feature requests and bugs have been successfully implemented, tested, and pu
 - `e183fe8` - FR-25: Improve notes title formatting for better readability
 - `5794ccc` - FR-22: Enhance session credit/usage display with clearer labeling
 
-**Tests:** 105/105 passing ✅
+**Tests:** 163/163 passing ✅
 
 ---
 
