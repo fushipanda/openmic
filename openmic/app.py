@@ -12,7 +12,7 @@ from rich.markdown import Markdown as RichMarkdown
 from rich.text import Text
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
@@ -203,14 +203,22 @@ class StatusBar(Static):
         self._update_display()
 
 
-class TranscriptPane(Static):
-    """Main pane displaying transcript text."""
+class TranscriptPane(VerticalScroll):
+    """Main pane displaying transcript text, with native scrolling."""
 
     def __init__(self) -> None:
-        super().__init__("")
+        super().__init__()
+        self._content = Static("", id="transcript-content")
         self._text = ""
         self._show_banner = True
         self._auto_scroll = True
+
+    @property
+    def allow_vertical_scroll(self) -> bool:
+        return self.is_scrollable
+
+    def compose(self) -> ComposeResult:
+        yield self._content
 
     def on_mount(self) -> None:
         if self._show_banner:
@@ -268,26 +276,30 @@ class TranscriptPane(Static):
             banner.append("\n")
         banner.append("\n")
         banner.append("voice → text → insight", style=f"italic {muted}")
-        self.update(banner)
+        self._content.update(banner)
 
     def append_text(self, text: str) -> None:
         self._show_banner = False
         self._text += text
-        self.update(self._text)
+        self._content.update(self._text)
         self._scroll_to_bottom()
 
     def set_text(self, text: str) -> None:
         self._show_banner = False
         self._text = text
-        self.update(self._text)
+        self._content.update(self._text)
         self._scroll_to_bottom()
 
     def set_markdown(self, markdown_text: str) -> None:
         """Render markdown content with rich formatting."""
         self._show_banner = False
         self._text = markdown_text
-        self.update(RichMarkdown(markdown_text))
+        self._content.update(RichMarkdown(markdown_text))
         self._scroll_to_bottom()
+
+    def update(self, renderable="") -> None:
+        """Delegate content updates to the inner Static widget."""
+        self._content.update(renderable)
 
     def clear(self) -> None:
         self._text = ""
@@ -793,8 +805,11 @@ class OpenMicApp(App):
         padding: 1 2;
         background: $panel;
         border: round $primary 50%;
-        overflow-y: auto;
         margin: 1 1 0 1;
+        layout: vertical;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-size-vertical: 0;
     }
 
     CommandInput {
@@ -847,13 +862,14 @@ class OpenMicApp(App):
         self._session_name: str | None = None
         self._awaiting_session_name = False
         self._viewing = False  # True when viewing a transcript/notes (Esc returns to home)
+        self._tab_cycling = False  # True when Tab is cycling through autocomplete matches
         # Ensure user templates directory exists
         self._user_templates_dir = CONFIG_DIR / "templates"
         self._user_templates_dir.mkdir(parents=True, exist_ok=True)
 
     def compose(self) -> ComposeResult:
         yield self.status_bar
-        yield Container(self.transcript_pane)
+        yield self.transcript_pane
         yield self.autocomplete
         yield self.command_input
         yield Footer()
@@ -1245,6 +1261,10 @@ class OpenMicApp(App):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Update autocomplete dropdown as the user types."""
+        if self._tab_cycling:
+            # Don't reset matches while Tab is cycling through commands
+            self._tab_cycling = False
+            return
         self.autocomplete.update_matches(event.value.strip())
 
     def on_key(self, event) -> None:
@@ -1260,12 +1280,34 @@ class OpenMicApp(App):
             event.prevent_default()
             event.stop()
         elif event.key == "tab":
-            # Tab key autocomplete: fill in the selected command
+            # Tab cycles forward through matching commands
             selected = self.autocomplete.get_selected()
             if selected:
-                self.command_input.value = selected + " "
-                self.command_input.cursor_position = len(self.command_input.value)
-                self.autocomplete.hide()
+                current_val = self.command_input.value.strip()
+                if current_val == selected:
+                    # Already showing this match — advance to next
+                    self.autocomplete.move_selection(1)
+                    selected = self.autocomplete.get_selected()
+                # Fill the input with the selected command (set flag to avoid resetting matches)
+                if selected:
+                    self._tab_cycling = True
+                    self.command_input.value = selected
+                    self.command_input.cursor_position = len(self.command_input.value)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "shift+tab":
+            # Shift+Tab cycles backward through matching commands
+            selected = self.autocomplete.get_selected()
+            if selected:
+                current_val = self.command_input.value.strip()
+                if current_val == selected:
+                    # Already showing this match — go to previous
+                    self.autocomplete.move_selection(-1)
+                    selected = self.autocomplete.get_selected()
+                if selected:
+                    self._tab_cycling = True
+                    self.command_input.value = selected
+                    self.command_input.cursor_position = len(self.command_input.value)
             event.prevent_default()
             event.stop()
         elif event.key == "escape":

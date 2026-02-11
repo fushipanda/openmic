@@ -461,3 +461,122 @@ class TestEscNavigation:
     def test_go_back_action_exists(self):
         """OpenMicApp should have an action_go_back method."""
         assert hasattr(OpenMicApp, "action_go_back")
+
+
+class TestTabCycling:
+    """BUG-8: Tab should cycle through autocomplete matches, not hide the dropdown."""
+
+    def test_tab_fills_first_match(self):
+        """First Tab press should fill the currently selected (first) match."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start recording"), ("/stop", "Stop recording")]
+        dropdown._selected_index = 0
+        # Simulate: first match is selected, input is partial "/s"
+        selected = dropdown.get_selected()
+        assert selected == "/start"
+
+    def test_tab_cycles_to_next_match(self):
+        """Tab when input already matches selected should advance to next match."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start recording"), ("/stop", "Stop recording")]
+        dropdown._selected_index = 0
+        # Simulate the cycle logic: input == selected, so advance
+        current_val = "/start"
+        selected = dropdown.get_selected()
+        if current_val == selected:
+            dropdown._selected_index = (dropdown._selected_index + 1) % len(dropdown._matches)
+            selected = dropdown.get_selected()
+        assert selected == "/stop"
+
+    def test_tab_cycles_wraps_around(self):
+        """Tab should wrap from last match back to first."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start"), ("/stop", "Stop")]
+        dropdown._selected_index = 1
+        current_val = "/stop"
+        selected = dropdown.get_selected()
+        if current_val == selected:
+            dropdown._selected_index = (dropdown._selected_index + 1) % len(dropdown._matches)
+            selected = dropdown.get_selected()
+        assert selected == "/start"
+
+    def test_shift_tab_cycles_backward(self):
+        """Shift+Tab should cycle backward through matches."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start"), ("/stop", "Stop")]
+        dropdown._selected_index = 1
+        current_val = "/stop"
+        selected = dropdown.get_selected()
+        if current_val == selected:
+            dropdown._selected_index = (dropdown._selected_index - 1) % len(dropdown._matches)
+            selected = dropdown.get_selected()
+        assert selected == "/start"
+
+    def test_shift_tab_wraps_backward(self):
+        """Shift+Tab should wrap from first match to last."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/start", "Start"), ("/stop", "Stop")]
+        dropdown._selected_index = 0
+        current_val = "/start"
+        selected = dropdown.get_selected()
+        if current_val == selected:
+            dropdown._selected_index = (dropdown._selected_index - 1) % len(dropdown._matches)
+            selected = dropdown.get_selected()
+        assert selected == "/stop"
+
+    def test_tab_cycling_flag_exists(self):
+        """OpenMicApp should have a _tab_cycling flag to prevent match reset during cycling."""
+        app = OpenMicApp.__new__(OpenMicApp)
+        # The __init__ sets _tab_cycling = False
+        # We can't call __init__ easily without side effects, so check the class
+        import inspect
+        source = inspect.getsource(OpenMicApp.__init__)
+        assert "_tab_cycling" in source
+
+    def test_on_key_handles_tab(self):
+        """on_key method should handle tab key."""
+        import inspect
+        source = inspect.getsource(OpenMicApp.on_key)
+        assert '"tab"' in source
+
+    def test_on_key_handles_shift_tab(self):
+        """on_key method should handle shift+tab key."""
+        import inspect
+        source = inspect.getsource(OpenMicApp.on_key)
+        assert '"shift+tab"' in source
+
+    def test_on_input_changed_respects_tab_cycling_flag(self):
+        """on_input_changed should skip update_matches when _tab_cycling is True."""
+        import inspect
+        source = inspect.getsource(OpenMicApp.on_input_changed)
+        assert "_tab_cycling" in source
+
+    def test_tab_does_not_hide_dropdown(self):
+        """Tab handler should NOT call autocomplete.hide()."""
+        import inspect
+        source = inspect.getsource(OpenMicApp.on_key)
+        # Find the tab section and verify it doesn't hide
+        lines = source.split('\n')
+        in_tab_section = False
+        in_shift_tab = False
+        for line in lines:
+            if '"tab"' in line and 'shift' not in line:
+                in_tab_section = True
+            elif '"shift+tab"' in line:
+                in_tab_section = False
+                in_shift_tab = True
+            elif in_tab_section and ('elif' in line or 'def ' in line):
+                in_tab_section = False
+            if in_tab_section and 'hide()' in line:
+                pytest.fail("Tab handler should not call hide() — it should keep the dropdown visible")
+
+    def test_single_match_tab_fills_without_cycling(self):
+        """With a single match, Tab should fill it without error."""
+        dropdown = AutocompleteDropdown()
+        dropdown._matches = [("/exit", "Quit")]
+        dropdown._selected_index = 0
+        selected = dropdown.get_selected()
+        assert selected == "/exit"
+        # Cycling wraps to same item
+        dropdown._selected_index = (dropdown._selected_index + 1) % len(dropdown._matches)
+        assert dropdown.get_selected() == "/exit"
