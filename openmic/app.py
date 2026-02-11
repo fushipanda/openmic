@@ -208,6 +208,11 @@ class TranscriptPane(VerticalScroll):
 
     can_focus = True
 
+    @property
+    def allow_vertical_scroll(self) -> bool:
+        """Allow scrolling even when scrollbar is hidden (size=0)."""
+        return self.is_scrollable
+
     def __init__(self) -> None:
         super().__init__()
         self._content = Static("", id="transcript-content")
@@ -400,31 +405,32 @@ class AutocompleteDropdown(Static):
         if not self._matches:
             return
 
-        # Use Rich Text for better styling
-        from rich.text import Text as RichText
+        from textual.content import Content
+        from textual.visual import Style as TStyle
         theme = self.app.current_theme
+
+        primary_style = TStyle(foreground=theme.primary, bold=True)
+        accent_style = TStyle(foreground=theme.accent, bold=True)
+        fg_style = TStyle(foreground=theme.foreground)
+        muted_style = TStyle(foreground=_muted_color(theme))
 
         lines = []
         for i, (cmd, desc) in enumerate(self._matches):
-            line = RichText()
             if i == self._selected_index:
-                # Highlighted selection
-                line.append("▸ ", style=f"bold {theme.primary}")
-                line.append(f"{cmd:<16}", style=f"bold {theme.accent}")
-                line.append(f" {desc}", style=theme.foreground)
+                line = Content.assemble(
+                    Content.styled("▸ ", primary_style),
+                    Content.styled(f"{cmd:<16}", accent_style),
+                    Content.styled(f" {desc}", fg_style),
+                )
             else:
-                line.append("  ")
-                line.append(f"{cmd:<16}", style=theme.foreground)
-                line.append(f" {desc}", style=_muted_color(theme))
+                line = Content.assemble(
+                    Content("  "),
+                    Content.styled(f"{cmd:<16}", fg_style),
+                    Content.styled(f" {desc}", muted_style),
+                )
             lines.append(line)
 
-        # Combine all lines
-        combined = RichText()
-        for i, line in enumerate(lines):
-            if i > 0:
-                combined.append("\n")
-            combined.append(line)
-
+        combined = Content("\n").join(lines)
         self.update(combined)
 
     def move_selection(self, delta: int) -> None:
@@ -443,7 +449,7 @@ class AutocompleteDropdown(Static):
     def hide(self) -> None:
         """Hide the dropdown."""
         self._matches = []
-        self.update(" ")
+        self.update("")
         self.display = False
 
 

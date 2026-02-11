@@ -645,12 +645,16 @@ class TestTranscriptPaneScrolling:
         """TranscriptPane should be focusable for mouse wheel events."""
         assert TranscriptPane.can_focus is True
 
-    def test_no_allow_vertical_scroll_override(self):
-        """TranscriptPane should NOT override allow_vertical_scroll (let VerticalScroll handle it)."""
-        # Check that allow_vertical_scroll is not defined directly on TranscriptPane
-        assert "allow_vertical_scroll" not in TranscriptPane.__dict__, (
-            "TranscriptPane should not override allow_vertical_scroll"
-        )
+    def test_allow_vertical_scroll_override_exists(self):
+        """TranscriptPane must override allow_vertical_scroll to enable scrolling with hidden scrollbar."""
+        assert "allow_vertical_scroll" in TranscriptPane.__dict__
+
+    def test_render_content_uses_textual_content(self):
+        """_render_content should use Textual's Content class, not Rich Text."""
+        import inspect
+        source = inspect.getsource(AutocompleteDropdown._render_content)
+        assert "from textual.content import Content" in source
+        assert "RichText" not in source
 
     def test_scroll_actions_delegate_to_transcript_pane(self):
         """Scroll action methods should call transcript_pane scroll methods."""

@@ -62,11 +62,12 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Enter executes the currently shown command
 - [x] Escape hides the dropdown
 - [x] `_tab_cycling` flag prevents `on_input_changed` from resetting matches during cycling
+- [x] Replaced Rich `Text` with Textual's native `Content` class in `_render_content` to fix invisible dropdown text
 
 ### ✅ BUG-9: TranscriptPane not scrollable with mouse wheel or Page Up/Down
 - [x] Changed `overflow-y: auto` to `overflow-y: scroll` in TranscriptPane CSS
 - [x] Added app-level `pageup`/`pagedown` bindings that delegate to `transcript_pane.scroll_page_up()`/`scroll_page_down()`
-- [x] Removed `allow_vertical_scroll` override that was interfering with native scroll
+- [x] Re-added `allow_vertical_scroll` override — required because `scrollbar-size-vertical: 0` makes `show_vertical_scrollbar` false, which disables scroll events
 - [x] Set `can_focus = True` on TranscriptPane for mouse wheel event handling
 - [x] Scrollbar remains hidden (`scrollbar-size-vertical: 0`)
 
