@@ -218,6 +218,7 @@ class TranscriptPane(VerticalScroll):
         super().__init__()
         self._content = Static("", id="transcript-content")
         self._text = ""
+        self._rich_parts: list[Text] = []
         self._show_banner = False
         self._show_welcome = True
         self._auto_scroll = True
@@ -335,8 +336,33 @@ class TranscriptPane(VerticalScroll):
         """Delegate content updates to the inner Static widget."""
         self._content.update(renderable)
 
+    def append_rich(self, text: Text) -> None:
+        """Append a Rich Text object to the display."""
+        self._show_banner = False
+        self._show_welcome = False
+        self._rich_parts.append(text)
+        self._rebuild_rich_display()
+        self._scroll_to_bottom()
+
+    def replace_last_rich(self, text: Text) -> None:
+        """Replace the last Rich Text part (e.g. swap 'Searching...' with answer)."""
+        if self._rich_parts:
+            self._rich_parts[-1] = text
+        else:
+            self._rich_parts.append(text)
+        self._rebuild_rich_display()
+        self._scroll_to_bottom()
+
+    def _rebuild_rich_display(self) -> None:
+        """Combine all rich parts into one Text and update display."""
+        combined = Text()
+        for part in self._rich_parts:
+            combined.append_text(part)
+        self._content.update(combined)
+
     def clear(self) -> None:
         self._text = ""
+        self._rich_parts = []
         self._show_banner = False
         self._show_welcome = True
         self._auto_scroll = True
@@ -905,6 +931,7 @@ class OpenMicApp(App):
         self._session_name: str | None = None
         self._awaiting_session_name = False
         self._viewing = False  # True when viewing a transcript/notes (Esc returns to home)
+        self._chatting = False  # True during ongoing RAG conversation
         self._tab_cycling = False  # True when Tab is cycling through autocomplete matches
         # Ensure user templates directory exists
         self._user_templates_dir = CONFIG_DIR / "templates"
@@ -940,6 +967,9 @@ class OpenMicApp(App):
         """Return to home screen when viewing a transcript or notes."""
         if self._viewing:
             self._viewing = False
+            if self._chatting:
+                self._chatting = False
+                self.rag.clear_chat_history()
             self.transcript_pane.clear()
 
     def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
@@ -1170,14 +1200,24 @@ class OpenMicApp(App):
         muted = _muted_color(theme)
         fg = theme.foreground or "#e8e8e8"
 
-        # Show loading state
-        loading = Text("Q: ", style=f"bold {primary}")
-        loading.append(f"{question}\n\n", style=fg)
-        loading.append(f"Searching across {len(transcripts)} transcript{'s' if len(transcripts) != 1 else ''}...", style=f"italic {muted}")
-        self.transcript_pane._show_banner = False
-        self.transcript_pane._show_welcome = False
-        self.transcript_pane._text = ""
-        self.transcript_pane.update(loading)
+        # First question starts a new conversation; follow-ups continue it
+        if not self._chatting:
+            self._chatting = True
+            self.rag.clear_chat_history()
+            self.transcript_pane._show_banner = False
+            self.transcript_pane._show_welcome = False
+            self.transcript_pane._text = ""
+            self.transcript_pane._rich_parts = []
+
+        # Build the "You:" line
+        user_line = Text()
+        user_line.append("You: ", style=f"bold {primary}")
+        user_line.append(f"{question}\n\n", style=fg)
+        self.transcript_pane.append_rich(user_line)
+
+        # Show loading indicator
+        loading = Text(f"Searching across {len(transcripts)} transcript{'s' if len(transcripts) != 1 else ''}...", style=f"italic {muted}")
+        self.transcript_pane.append_rich(loading)
 
         try:
             result = await asyncio.get_event_loop().run_in_executor(
@@ -1190,21 +1230,24 @@ class OpenMicApp(App):
             answer = result["answer"]
             sources = result["sources"]
 
-            display = Text()
-            display.append("Q: ", style=f"bold {primary}")
-            display.append(f"{question}\n\n", style=fg)
-            display.append("A: ", style=f"bold {primary}")
-            display.append(f"{answer}\n", style=fg)
+            # Build the AI response
+            ai_response = Text()
+            ai_response.append("AI: ", style=f"bold {primary}")
+            ai_response.append(f"{answer}\n", style=fg)
 
             if sources:
-                display.append("\nSources:\n", style=f"bold {muted}")
-                for src in sources:
-                    display.append(f"  · {src}\n", style=muted)
+                ai_response.append("Sources: ", style=f"bold {muted}")
+                ai_response.append(", ".join(sources), style=muted)
+                ai_response.append("\n")
 
-            self.transcript_pane.update(display)
+            ai_response.append("\n")
+
+            # Replace the "Searching..." line with the actual answer
+            self.transcript_pane.replace_last_rich(ai_response)
             self._viewing = True
         except Exception as e:
-            self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
+            error_text = Text(f"Error during query: {e}\n\n", style="bold red")
+            self.transcript_pane.replace_last_rich(error_text)
 
     async def _generate_notes(self) -> None:
         """Generate meeting notes — show picker if multiple transcripts exist."""
