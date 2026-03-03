@@ -11,6 +11,7 @@ from pathlib import Path
 from rich.markdown import Markdown as RichMarkdown
 from rich.text import Text
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -42,7 +43,7 @@ def _save_config(config: dict) -> None:
 
 from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
-from openmic.storage import save_transcript, list_transcripts, rename_transcript, NOTES_DIR, RECORDINGS_DIR, list_recordings, delete_all_recordings
+from openmic.storage import save_transcript, list_transcripts, rename_transcript, format_transcript_title, TRANSCRIPTS_DIR, NOTES_DIR, RECORDINGS_DIR, list_recordings, delete_all_recordings
 from openmic.rag import TranscriptRAG
 from openmic.notes import generate_meeting_notes, generate_notes_for_latest, get_existing_notes
 
@@ -210,22 +211,23 @@ class TranscriptPane(VerticalScroll):
 
     @property
     def allow_vertical_scroll(self) -> bool:
-        """Allow scrolling even when scrollbar is hidden (size=0)."""
-        return self.is_scrollable
+        """Allow vertical scrolling regardless of scrollbar visibility or mount state."""
+        return True
 
     def __init__(self) -> None:
         super().__init__()
         self._content = Static("", id="transcript-content")
         self._text = ""
-        self._show_banner = True
+        self._show_banner = False
+        self._show_welcome = True
         self._auto_scroll = True
 
     def compose(self) -> ComposeResult:
         yield self._content
 
     def on_mount(self) -> None:
-        if self._show_banner:
-            self._render_banner()
+        if self._show_welcome:
+            self._render_welcome()
 
     def watch_scroll_y(self, old: float, new: float) -> None:
         """Track scroll position to manage auto-scroll."""
@@ -281,14 +283,42 @@ class TranscriptPane(VerticalScroll):
         banner.append("voice → text → insight", style=f"italic {muted}")
         self._content.update(banner)
 
+    def _render_welcome(self) -> None:
+        """Render the query-first welcome screen."""
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+        muted = _muted_color(theme)
+
+        transcripts = list_transcripts()
+        count = len(transcripts)
+
+        welcome = Text()
+        welcome.append("OpenMic", style=f"bold {primary}")
+        welcome.append("\n\n")
+        if count > 0:
+            welcome.append(f"{count} transcript{'s' if count != 1 else ''} available", style=muted)
+            welcome.append(" — ask anything\n\n", style=muted)
+            welcome.append("Type a question and press Enter to search across all transcripts.\n", style=f"italic {muted}")
+            welcome.append("Use / for commands: ", style=f"italic {muted}")
+            welcome.append("/start  /history  /notes", style=f"italic {primary}")
+        else:
+            welcome.append("No transcripts yet", style=muted)
+            welcome.append(" — use ", style=muted)
+            welcome.append("/start", style=f"bold {primary}")
+            welcome.append(" to record your first meeting\n", style=muted)
+
+        self._content.update(welcome)
+
     def append_text(self, text: str) -> None:
         self._show_banner = False
+        self._show_welcome = False
         self._text += text
         self._content.update(self._text)
         self._scroll_to_bottom()
 
     def set_text(self, text: str) -> None:
         self._show_banner = False
+        self._show_welcome = False
         self._text = text
         self._content.update(self._text)
         self._scroll_to_bottom()
@@ -296,6 +326,7 @@ class TranscriptPane(VerticalScroll):
     def set_markdown(self, markdown_text: str) -> None:
         """Render markdown content with rich formatting."""
         self._show_banner = False
+        self._show_welcome = False
         self._text = markdown_text
         self._content.update(RichMarkdown(markdown_text))
         self._scroll_to_bottom()
@@ -306,16 +337,17 @@ class TranscriptPane(VerticalScroll):
 
     def clear(self) -> None:
         self._text = ""
-        self._show_banner = True
+        self._show_banner = False
+        self._show_welcome = True
         self._auto_scroll = True
-        self._render_banner()
+        self._render_welcome()
 
 
 class CommandInput(Input):
     """Command input at the bottom of the screen."""
 
     def __init__(self) -> None:
-        super().__init__(placeholder="/start · /stop · /history · /query · /notes")
+        super().__init__(placeholder="Ask a question, or type / for commands...")
 
 
 SLASH_COMMANDS = [
@@ -326,7 +358,7 @@ SLASH_COMMANDS = [
     ("/name", "Rename the latest transcript"),
     ("/notes", "Generate structured meeting notes"),
     ("/pause", "Pause recording (resume with /start)"),
-    ("/query", "Ask a question about your transcripts"),
+    ("/query", "Ask a question across all transcripts"),
     ("/start", "Start recording"),
     ("/stop", "Stop recording and run batch transcription"),
     ("/transcript", "View transcript by number or name"),
@@ -339,7 +371,7 @@ HELP_COMMANDS = [
     ("/pause", "Pause recording (resume with /start)"),
     ("/history", "List saved transcripts"),
     ("/transcript <n>", "View transcript by number or name"),
-    ("/query <question>", "Ask a question about your transcripts"),
+    ("/query <question>", "Ask a question across all transcripts"),
     ("/notes", "Generate notes (with template selection)"),
     ("/name <name>", "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
@@ -351,6 +383,8 @@ HELP_COMMANDS = [
     ("Esc", "Return to home screen"),
     ("Ctrl+C", "Quit"),
     ("Ctrl+?", "Show this help"),
+    ("", ""),
+    ("Tip", "Type any question directly to search all transcripts"),
 ]
 
 
@@ -491,11 +525,14 @@ class HelpScreen(ModalScreen):
         text = Text()
         text.append("Help\n\n", style=f"bold {primary}")
 
-        text.append("Commands\n", style=f"bold {fg}")
+        section_headers = iter(["Commands", "Shortcuts", ""])
+        text.append(f"{next(section_headers)}\n", style=f"bold {fg}")
         for cmd, desc in HELP_COMMANDS:
             if not cmd:
                 text.append("\n")
-                text.append("Shortcuts\n", style=f"bold {fg}")
+                header = next(section_headers, "")
+                if header:
+                    text.append(f"{header}\n", style=f"bold {fg}")
                 continue
             text.append(f"  {cmd:<22}", style=f"bold {primary}")
             text.append(f" {desc}\n", style=muted)
@@ -889,7 +926,9 @@ class OpenMicApp(App):
         config["theme"] = self.theme
         _save_config(config)
         # Re-render theme-aware widgets
-        if self.transcript_pane._show_banner:
+        if self.transcript_pane._show_welcome:
+            self.transcript_pane._render_welcome()
+        elif self.transcript_pane._show_banner:
             self.transcript_pane._render_banner()
         self.status_bar._update_display()
 
@@ -902,6 +941,16 @@ class OpenMicApp(App):
         if self._viewing:
             self._viewing = False
             self.transcript_pane.clear()
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        """Handle mouse scroll at app level — ensures scrolling works regardless of focus."""
+        if not isinstance(self.screen, ModalScreen):
+            self.transcript_pane.scroll_down(animate=False)
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        """Handle mouse scroll at app level — ensures scrolling works regardless of focus."""
+        if not isinstance(self.screen, ModalScreen):
+            self.transcript_pane.scroll_up(animate=False)
 
     def action_scroll_up_page(self) -> None:
         """Scroll the transcript pane up by one page."""
@@ -1038,6 +1087,7 @@ class OpenMicApp(App):
             text.append(f": {content}\n")
 
         self.transcript_pane._show_banner = False
+        self.transcript_pane._show_welcome = False
         self.transcript_pane._text = ""
         self.transcript_pane.update(text)
 
@@ -1088,6 +1138,7 @@ class OpenMicApp(App):
         processing.append(question, style=fg)
         processing.append(f"\n\nSearching {transcript_path.stem}...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
+        self.transcript_pane._show_welcome = False
         self.transcript_pane._text = ""
         self.transcript_pane.update(processing)
         try:
@@ -1103,6 +1154,54 @@ class OpenMicApp(App):
             result.append("A: ", style=f"bold {primary}")
             result.append(f"{answer}\n")
             self.transcript_pane.update(result)
+            self._viewing = True
+        except Exception as e:
+            self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
+
+    async def _run_query_all(self, question: str) -> None:
+        """Run a RAG query across all transcripts with source citations."""
+        transcripts = list_transcripts()
+        if not transcripts:
+            self.transcript_pane.set_text("No transcripts available to query.\nUse /start to record your first meeting.\n")
+            return
+
+        theme = self.current_theme
+        primary = theme.primary or "#00d4aa"
+        muted = _muted_color(theme)
+        fg = theme.foreground or "#e8e8e8"
+
+        # Show loading state
+        loading = Text("Q: ", style=f"bold {primary}")
+        loading.append(f"{question}\n\n", style=fg)
+        loading.append(f"Searching across {len(transcripts)} transcript{'s' if len(transcripts) != 1 else ''}...", style=f"italic {muted}")
+        self.transcript_pane._show_banner = False
+        self.transcript_pane._show_welcome = False
+        self.transcript_pane._text = ""
+        self.transcript_pane.update(loading)
+
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.rag.query(question),
+            )
+            self.usage_tracker.add_llm_call()
+            self.status_bar.refresh_usage()
+
+            answer = result["answer"]
+            sources = result["sources"]
+
+            display = Text()
+            display.append("Q: ", style=f"bold {primary}")
+            display.append(f"{question}\n\n", style=fg)
+            display.append("A: ", style=f"bold {primary}")
+            display.append(f"{answer}\n", style=fg)
+
+            if sources:
+                display.append("\nSources:\n", style=f"bold {muted}")
+                for src in sources:
+                    display.append(f"  · {src}\n", style=muted)
+
+            self.transcript_pane.update(display)
             self._viewing = True
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
@@ -1202,6 +1301,7 @@ class OpenMicApp(App):
         else:
             processing = Text(f"Generating notes ({template_name})...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
+        self.transcript_pane._show_welcome = False
         self.transcript_pane._text = ""
         self.transcript_pane.update(processing)
         try:
@@ -1270,7 +1370,7 @@ class OpenMicApp(App):
 
     def _reset_command_input(self) -> None:
         """Reset command input to default state."""
-        self.command_input.placeholder = "/start · /stop · /history · /query · /notes"
+        self.command_input.placeholder = "Ask a question, or type / for commands..."
         self._awaiting_session_name = False
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -1381,7 +1481,7 @@ class OpenMicApp(App):
         elif command.startswith("/query"):
             query_text = command[6:].strip()
             if query_text:
-                await self._run_query(query_text)
+                await self._run_query_all(query_text)
             else:
                 self.transcript_pane.append_text("\nUsage: /query <your question>\n")
         elif command == "/notes":
@@ -1417,7 +1517,8 @@ class OpenMicApp(App):
             state = "ON" if self._verbose else "OFF"
             self.transcript_pane.append_text(f"\nVerbose mode: {state}\n")
         elif command:
-            self.transcript_pane.append_text(f"\nUnknown command: {command}\n")
+            # Non-slash input = query across all transcripts
+            await self._run_query_all(command)
 
 
 def main() -> None:

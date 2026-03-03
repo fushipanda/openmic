@@ -8,7 +8,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_classic.chains import RetrievalQA
 
-from openmic.storage import TRANSCRIPTS_DIR
+from openmic.storage import TRANSCRIPTS_DIR, format_transcript_title
 
 
 def get_embeddings():
@@ -80,25 +80,40 @@ class TranscriptRAG:
                 llm=llm,
                 chain_type="stuff",
                 retriever=self._vectorstore.as_retriever(search_kwargs={"k": 4}),
+                return_source_documents=True,
             )
 
-    def query(self, question: str) -> str:
+    def query(self, question: str) -> dict:
         """Query the transcripts with a question.
 
         Args:
             question: The question to answer
 
         Returns:
-            The answer from the LLM based on relevant transcript chunks
+            Dict with 'answer' (str) and 'sources' (list of human-readable titles)
         """
         if self._vectorstore is None:
             self.refresh()
 
         if self._qa_chain is None:
-            return "No transcripts available to query."
+            return {"answer": "No transcripts available to query.", "sources": []}
 
         result = self._qa_chain.invoke({"query": question})
-        return result.get("result", "Unable to generate answer.")
+        answer = result.get("result", "Unable to generate answer.")
+
+        # Extract unique source filenames and convert to readable titles
+        sources = []
+        seen = set()
+        for doc in result.get("source_documents", []):
+            source_path = doc.metadata.get("source", "")
+            if source_path and source_path not in seen:
+                seen.add(source_path)
+                stem = Path(source_path).stem
+                ts = stem[:16]
+                name = stem[17:] if len(stem) > 16 else None
+                sources.append(format_transcript_title(ts, name))
+
+        return {"answer": answer, "sources": sources}
 
     def query_file(self, question: str, transcript_path: Path) -> str:
         """Query a specific transcript file.

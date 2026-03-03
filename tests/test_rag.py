@@ -54,7 +54,7 @@ class TestTranscriptRAG:
         """Full RAG pipeline: load docs, build vectorstore, query with mocked chain."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
-        mock_chain.invoke.return_value = {"result": "The deadline is September 30th."}
+        mock_chain.invoke.return_value = {"result": "The deadline is September 30th.", "source_documents": []}
 
         with patch("openmic.rag.get_embeddings", return_value=fake_embeddings), \
              patch("openmic.rag.RetrievalQA") as mock_qa_cls:
@@ -67,14 +67,39 @@ class TestTranscriptRAG:
             assert rag._qa_chain is mock_chain
 
             result = rag.query("What is the database migration deadline?")
-            assert result == "The deadline is September 30th."
+            assert result["answer"] == "The deadline is September 30th."
+            assert result["sources"] == []
             mock_chain.invoke.assert_called_once()
+
+    def test_query_returns_sources(self, transcript_dir):
+        """Query returns human-readable source titles from source documents."""
+        fake_embeddings = FakeEmbeddings()
+        mock_chain = MagicMock()
+        mock_doc1 = MagicMock()
+        mock_doc1.metadata = {"source": str(transcript_dir / "2025-06-15_14-30.md")}
+        mock_doc2 = MagicMock()
+        mock_doc2.metadata = {"source": str(transcript_dir / "2025-06-16_10-00.md")}
+        mock_chain.invoke.return_value = {
+            "result": "The answer.",
+            "source_documents": [mock_doc1, mock_doc2, mock_doc1],  # duplicate
+        }
+
+        with patch("openmic.rag.get_embeddings", return_value=fake_embeddings), \
+             patch("openmic.rag.RetrievalQA") as mock_qa_cls:
+            mock_qa_cls.from_chain_type.return_value = mock_chain
+
+            rag = TranscriptRAG()
+            rag.refresh()
+            result = rag.query("test?")
+            assert result["answer"] == "The answer."
+            assert len(result["sources"]) == 2  # deduped
+            assert "Meeting Transcript" in result["sources"][0]
 
     def test_query_triggers_refresh(self, transcript_dir):
         """First query auto-refreshes the vectorstore."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
-        mock_chain.invoke.return_value = {"result": "Answer."}
+        mock_chain.invoke.return_value = {"result": "Answer.", "source_documents": []}
 
         with patch("openmic.rag.get_embeddings", return_value=fake_embeddings), \
              patch("openmic.rag.RetrievalQA") as mock_qa_cls:
@@ -86,7 +111,7 @@ class TestTranscriptRAG:
             result = rag.query("test?")
             # Should have auto-refreshed
             assert rag._vectorstore is not None
-            assert result == "Answer."
+            assert result["answer"] == "Answer."
 
     def test_query_no_transcripts(self, tmp_path, monkeypatch):
         """Query with no transcripts returns informative message."""
@@ -100,7 +125,8 @@ class TestTranscriptRAG:
              patch("openmic.rag.get_llm"):
             rag = TranscriptRAG()
             result = rag.query("anything")
-            assert result == "No transcripts available to query."
+            assert result["answer"] == "No transcripts available to query."
+            assert result["sources"] == []
 
     def test_refresh_rebuilds(self, transcript_dir):
         """Calling refresh rebuilds the vectorstore."""
@@ -130,7 +156,8 @@ class TestTranscriptRAG:
              patch("openmic.rag.get_llm"):
             rag = TranscriptRAG()
             result = rag.query("anything")
-            assert result == "No transcripts available to query."
+            assert result["answer"] == "No transcripts available to query."
+            assert result["sources"] == []
 
     def test_query_missing_result_key(self, transcript_dir):
         """Query handles missing 'result' key in chain output."""
@@ -145,7 +172,8 @@ class TestTranscriptRAG:
             rag = TranscriptRAG()
             rag.refresh()
             result = rag.query("test?")
-            assert result == "Unable to generate answer."
+            assert result["answer"] == "Unable to generate answer."
+            assert result["sources"] == []
 
     def test_vectorstore_built_with_documents(self, transcript_dir):
         """Vectorstore is built from transcript documents."""
