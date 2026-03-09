@@ -89,7 +89,10 @@ You can re-run `openmic setup` at any time to reconfigure.
 ### Start the Application
 
 ```bash
-openmic
+openmic              # launch the TUI
+openmic --version    # show installed version
+openmic update       # self-update to latest release
+openmic setup        # re-run the setup wizard
 ```
 
 ### Quick Example Workflow
@@ -126,6 +129,7 @@ openmic
 | `/name <name>` | Rename the most recent transcript |
 | `/help` | Show help popup with all commands and shortcuts |
 | `/verbose` | Toggle debug output |
+| `/version` | Show version and check for updates |
 | `/exit` | Quit the application |
 
 **Aliases**: `/transcripts`, `/history`, `/transcript` (no args) all open the transcript browser.

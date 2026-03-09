@@ -55,6 +55,13 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ## Active TODO
 
+### ✅ FR-34: Version Display, Self-Update, and GitHub Update Check
+- [x] `openmic/version.py` — get_version, get_latest_version (cached GitHub check), detect_install_method, run_update
+- [x] `openmic/__init__.py` — lazy `__version__` via `__getattr__`
+- [x] `openmic/app.py` — `--version`/`-V` flag, `update` subcommand, `/version` slash command, startup update check, welcome screen notice
+- [x] `tests/test_version.py` — 12 tests (version, caching, install detection, upgrade commands, CLI flag)
+- [x] README updated with CLI commands (`openmic --version`, `openmic update`)
+
 ### ✅ FR-33: `openmic setup` Onboarding Wizard
 - [x] `openmic/setup.py` — SetupApp/SetupScreen with multi-step wizard (welcome → provider → install deps → API keys → done)
 - [x] `PROVIDER_DEPS` mapping and `_get_required_keys()` per provider

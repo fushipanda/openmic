@@ -22,6 +22,7 @@ from textual.widgets import Button, Footer, Input, OptionList, Static
 from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.theme import Theme
+from textual import work
 
 from dotenv import load_dotenv
 
@@ -432,6 +433,14 @@ class TranscriptPane(VerticalScroll):
             welcome.append(" " * pad)
             welcome.append(f"{desc}\n", style=muted)
 
+        if hasattr(self.app, '_update_info') and self.app._update_info:
+            current, latest = self.app._update_info
+            welcome.append("\n")
+            welcome.append(f"  Update available: v{current} → v{latest}  ", style=muted)
+            welcome.append("run ", style=muted)
+            welcome.append("openmic update", style=f"bold {primary}")
+            welcome.append(" to upgrade\n", style=muted)
+
         self._content.update(welcome)
 
     def append_text(self, text: str) -> None:
@@ -516,6 +525,7 @@ SLASH_COMMANDS = [
     ("/stop", "Stop recording and run batch transcription"),
     ("/transcript", "View transcript by number or name"),
     ("/verbose", "Toggle debug output"),
+    ("/version", "Show version and check for updates"),
 ]
 
 HELP_COMMANDS = [
@@ -530,6 +540,7 @@ HELP_COMMANDS = [
     ("/name <name>", "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose", "Toggle debug output"),
+    ("/version", "Show version and check for updates"),
     ("/exit", "Quit OpenMic"),
     ("", ""),
     ("Ctrl+R", "Toggle recording on/off"),
@@ -1265,6 +1276,7 @@ class OpenMicApp(App):
         self._viewing = False  # True when viewing a transcript/notes (Esc returns to home)
         self._chatting = False  # True during ongoing RAG conversation
         self._tab_cycling = False  # True when Tab is cycling through autocomplete matches
+        self._update_info: tuple[str, str | None] | None = None
         # Ensure user templates directory exists
         self._user_templates_dir = CONFIG_DIR / "templates"
         self._user_templates_dir.mkdir(parents=True, exist_ok=True)
@@ -1275,6 +1287,24 @@ class OpenMicApp(App):
         yield self.autocomplete
         yield self.command_input
         yield Footer()
+
+    def on_mount(self) -> None:
+        self._check_for_updates()
+
+    @work(thread=True, exclusive=True)
+    def _check_for_updates(self) -> None:
+        from openmic.version import get_version, get_latest_version
+        config = _load_config()
+        current = get_version()
+        latest = get_latest_version(config)
+        _save_config(config)
+        if latest and latest != current:
+            self.call_from_thread(self._show_update_notice, current, latest)
+
+    def _show_update_notice(self, current: str, latest: str) -> None:
+        self._update_info = (current, latest)
+        if self.transcript_pane._show_welcome:
+            self.transcript_pane._render_welcome()
 
     def action_cycle_theme(self) -> None:
         """Cycle through available themes and persist the choice."""
@@ -2015,6 +2045,23 @@ class OpenMicApp(App):
                     label = MODEL_REGISTRY[provider]["label"]
                     self.transcript_pane.append_text(f"\nLLM set to {label}: {model}\n")
             self.push_screen(ModelPickerScreen(), on_model_selected)
+        elif command == "/version":
+            from openmic.version import get_version, get_latest_version, detect_install_method
+            current = get_version()
+            config = _load_config()
+            latest = get_latest_version(config)
+            _save_config(config)
+            method = detect_install_method()
+            lines = [f"\nopenmic v{current}"]
+            if method != "unknown":
+                lines.append(f"Installed via: {method}")
+            if latest:
+                if latest == current:
+                    lines.append("Up to date!")
+                else:
+                    lines.append(f"Update available: v{latest}")
+                    lines.append("Run 'openmic update' to upgrade.")
+            self.transcript_pane.append_text("\n".join(lines) + "\n")
         elif command == "/verbose":
             self._verbose = not self._verbose
             self.transcriber.verbose = self._verbose
@@ -2031,10 +2078,19 @@ def main() -> None:
     """Entry point for the OpenMic application."""
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "setup":
-        from openmic.setup import run_setup
-        run_setup()
-        return
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ("--version", "-V"):
+            from openmic.version import get_version
+            print(f"openmic {get_version()}")
+            return
+        if sys.argv[1] == "update":
+            from openmic.version import run_update
+            run_update()
+            return
+        if sys.argv[1] == "setup":
+            from openmic.setup import run_setup
+            run_setup()
+            return
 
     config = _load_config()
     if not config.get("setup_complete"):
