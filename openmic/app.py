@@ -82,9 +82,10 @@ MODEL_REGISTRY: dict[str, dict] = {
         "label": "OpenAI (GPT)",
         "env_key": "OPENAI_API_KEY",
         "models": [
-            ("gpt-4o", "Most capable"),
-            ("gpt-4o-mini", "Recommended"),
-            ("o1", "Reasoning"),
+            ("gpt-5.4", "Most capable"),
+            ("gpt-5.4-pro", "Highest quality"),
+            ("gpt-4.1-mini", "Fast & efficient"),
+            ("o3", "Reasoning"),
             ("o3-mini", "Fast reasoning"),
         ],
     },
@@ -92,9 +93,9 @@ MODEL_REGISTRY: dict[str, dict] = {
         "label": "Google (Gemini)",
         "env_key": "GEMINI_API_KEY",
         "models": [
-            ("gemini-2.0-flash", "Recommended"),
-            ("gemini-1.5-pro", "Most capable"),
-            ("gemini-1.5-flash", "Balanced"),
+            ("gemini-2.5-pro", "Most capable"),
+            ("gemini-2.5-flash", "Recommended"),
+            ("gemini-2.5-flash-lite", "Budget"),
         ],
     },
     "openrouter": {
