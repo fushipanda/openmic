@@ -100,6 +100,25 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 - [x] Set `can_focus = True` on TranscriptPane for mouse wheel event handling
 - [x] Scrollbar remains hidden (`scrollbar-size-vertical: 0`)
 
+### ✅ FR-31: `@transcript` Mention with Autocomplete
+- [x] AutocompleteDropdown supports `transcript` mode with `update_transcript_matches()`
+- [x] `@` in input triggers transcript name dropdown with case-insensitive filtering
+- [x] Tab/Shift+Tab cycles through matches and splices `@[Display Name]` into input
+- [x] Enter on transcript dropdown completes the mention (doesn't submit)
+- [x] `@[Name]` parsed in both `/query` and bare question inputs
+- [x] `_resolve_transcript_mention()` does exact then substring match
+- [x] Query runs against the specific transcript via `_run_query_on_path()`
+- [x] Error messages for missing question or unresolved transcript
+- [x] Help screen and placeholder updated
+
+### ✅ FR-32: Flat Model Picker
+- [x] Single flat list with provider names as disabled section headers
+- [x] All models shown as selectable options with `provider:model_id` IDs
+- [x] Compact single-line labels with model ID and description
+- [x] Modal width reduced from 72 to 56
+- [x] API key input still shown when key is missing for selected provider
+- [x] Removed two-step flow (`_show_providers`, `_show_models`, `_step` tracking)
+
 ---
 
 ## ✅ PROJECT STATUS: ALL ITEMS COMPLETED (prior to BUG-8/BUG-9)
