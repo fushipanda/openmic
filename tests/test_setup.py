@@ -8,7 +8,14 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from openmic.setup import _get_required_keys, PROVIDER_DEPS, run_setup
+from openmic.setup import (
+    _get_required_keys,
+    _prompt_provider,
+    _save_setup,
+    KEY_URLS,
+    PROVIDER_DEPS,
+    run_setup,
+)
 
 
 class TestGetRequiredKeys:
@@ -139,5 +146,67 @@ class TestKeysSkippedWhenPresent:
         with patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test-key-123"}):
             keys = _get_required_keys("openai")
             # The function returns what's required — the wizard skips
-            # keys present in env during _show_next_key()
+            # keys present in env during _prompt_api_keys()
             assert ("ELEVENLABS_API_KEY", "ElevenLabs API key (transcription)") in keys
+
+
+class TestPromptProvider:
+    """Test _prompt_provider CLI prompts."""
+
+    def test_default_returns_anthropic(self):
+        """Empty input selects default (anthropic)."""
+        with patch("builtins.input", return_value=""):
+            assert _prompt_provider() == "anthropic"
+
+    def test_valid_choice(self):
+        """Numeric input selects correct provider."""
+        with patch("builtins.input", return_value="3"):
+            assert _prompt_provider() == "gemini"
+
+    def test_invalid_then_valid(self):
+        """Bad input re-prompts until valid."""
+        with patch("builtins.input", side_effect=["abc", "0", "2"]):
+            assert _prompt_provider() == "openai"
+
+
+class TestKeyUrls:
+    """Test KEY_URLS coverage."""
+
+    def test_all_keys_have_urls(self):
+        """Every key from _get_required_keys for all providers has a URL."""
+        for provider in ["anthropic", "openai", "gemini", "openrouter"]:
+            for env_key, _ in _get_required_keys(provider):
+                assert env_key in KEY_URLS, f"{env_key} missing from KEY_URLS"
+
+
+class TestSaveSetup:
+    """Test _save_setup writes config correctly."""
+
+    @patch("openmic.setup._update_env_file")
+    @patch("openmic.setup._save_config")
+    @patch("openmic.setup._load_config", return_value={})
+    def test_saves_provider_and_keys(self, mock_load, mock_save, mock_env):
+        keys = {"ELEVENLABS_API_KEY": "el-key", "ANTHROPIC_API_KEY": "ant-key"}
+        _save_setup("anthropic", keys)
+
+        saved_config = mock_save.call_args[0][0]
+        assert saved_config["setup_complete"] is True
+        assert saved_config["llm_provider"] == "anthropic"
+        assert "llm_model" in saved_config
+
+        # Should write each key + LLM_PROVIDER to .env
+        env_calls = [c[0] for c in mock_env.call_args_list]
+        env_keys_written = [k for k, _ in env_calls]
+        assert "ELEVENLABS_API_KEY" in env_keys_written
+        assert "ANTHROPIC_API_KEY" in env_keys_written
+        assert "LLM_PROVIDER" in env_keys_written
+
+
+class TestRunSetupInterrupt:
+    """Test run_setup handles Ctrl+C gracefully."""
+
+    @patch("builtins.input", side_effect=KeyboardInterrupt)
+    def test_keyboard_interrupt_exits_cleanly(self, mock_input, capsys):
+        run_setup()
+        captured = capsys.readouterr()
+        assert "cancelled" in captured.out.lower()
