@@ -55,6 +55,35 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ## Active TODO
 
+### ✅ FR-27: Chat UI Redesign
+- [x] User messages: `  > question` with accent-colored `>` prefix, no "You:" label
+- [x] AI responses: rendered as Rich Markdown via `RichGroup`, no "AI:" label
+- [x] Sources displayed as muted line after markdown
+- [x] `_run_query_on_path` uses same styled format
+- [x] `_rebuild_rich_display` uses `RichGroup` to support mixed renderables
+
+### ✅ FR-28: RAG Quality Improvements
+- [x] Retrieval switched to MMR with k=8, fetch_k=20, lambda_mult=0.7
+- [x] History-aware prompt updated to preserve specific names/dates when reformulating
+- [x] QA prompt rewritten with structured rules (quote, partial, not-found guidance)
+- [x] Same improvements applied to `query_file()` for single-transcript queries
+- [x] Extended thinking support via `LLM_EXTENDED_THINKING=true` env var (Anthropic)
+
+### ✅ FR-29: Multi-Provider Model Support + `/model` Command
+- [x] `get_llm()` supports `LLM_MODEL` env var, Gemini, and OpenRouter providers
+- [x] `MODEL_REGISTRY` constant with curated models for each provider
+- [x] `ModelPickerScreen` two-step modal (provider → model → optional API key)
+- [x] `/model` command added to SLASH_COMMANDS, HELP_COMMANDS, and command handler
+- [x] On confirm: updates `os.environ`, writes to `.env`, saves to `settings.json`, rebuilds RAG
+- [x] `LLM_PROVIDER`/`LLM_MODEL` loaded from `settings.json` on startup
+- [x] Gemini optional dependency added to `pyproject.toml`
+- [x] `.env.example` updated with all new keys and comments
+
+### ✅ FR-30: ElevenLabs Scribe Enhancements
+- [x] Realtime WebSocket URL includes `language_code=en`
+- [x] Batch transcription adds `language_code="en"` and `tag_audio_events=True`
+- [x] `ELEVENLABS_SCRIBE_MODEL` env var controls model (default `scribe_v1`)
+
 ### ✅ BUG-8: Tab cycling for command autocomplete
 - [x] Tab cycles forward through matching commands without hiding the dropdown
 - [x] Shift+Tab cycles backward through matches
