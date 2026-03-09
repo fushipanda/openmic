@@ -15,7 +15,7 @@ from elevenlabs.client import ElevenLabs
 class RealtimeTranscriber:
     """Handles realtime transcription via ElevenLabs Scribe WebSocket."""
 
-    WEBSOCKET_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?commit_strategy=vad"
+    WEBSOCKET_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?commit_strategy=vad&language_code=en"
     SAMPLE_RATE = 16000
 
     def __init__(
@@ -220,12 +220,15 @@ class BatchTranscriber:
         """
         client = self._get_client()
 
+        model_id = os.environ.get("ELEVENLABS_SCRIBE_MODEL", "scribe_v1")
         with open(audio_path, "rb") as audio_file:
             result = client.speech_to_text.convert(
                 file=audio_file,
-                model_id="scribe_v1",
+                model_id=model_id,
                 diarize=True,
                 num_speakers=num_speakers,
+                language_code="en",
+                tag_audio_events=True,
             )
 
         return result

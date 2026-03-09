@@ -5,9 +5,11 @@ warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
 
 import asyncio
 import json
+import os
 from datetime import datetime, date
 from pathlib import Path
 
+from rich.console import Group as RichGroup
 from rich.markdown import Markdown as RichMarkdown
 from rich.text import Text
 
@@ -40,6 +42,71 @@ def _save_config(config: dict) -> None:
     """Save persistent config."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(config, indent=2))
+
+
+def _update_env_file(key: str, value: str) -> None:
+    """Write or update a key=value pair in the .env file."""
+    env_path = Path(".env")
+    if not env_path.exists():
+        # Fall back to config dir
+        env_path = CONFIG_DIR / ".env"
+    if env_path.exists():
+        lines = env_path.read_text().splitlines(keepends=True)
+        updated = False
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}=") or line.startswith(f"{key} ="):
+                lines[i] = f"{key}={value}\n"
+                updated = True
+                break
+        if not updated:
+            lines.append(f"{key}={value}\n")
+        env_path.write_text("".join(lines))
+    else:
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(f"{key}={value}\n")
+
+
+MODEL_REGISTRY: dict[str, dict] = {
+    "anthropic": {
+        "label": "Anthropic (Claude)",
+        "env_key": "ANTHROPIC_API_KEY",
+        "models": [
+            ("claude-opus-4-6", "Claude Opus 4.6 — Most capable"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6 — Recommended"),
+            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet — Stable"),
+            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 — Fastest"),
+        ],
+    },
+    "openai": {
+        "label": "OpenAI (GPT)",
+        "env_key": "OPENAI_API_KEY",
+        "models": [
+            ("gpt-4o", "GPT-4o — Most capable"),
+            ("gpt-4o-mini", "GPT-4o Mini — Recommended"),
+            ("o1", "o1 — Reasoning"),
+            ("o3-mini", "o3-mini — Fast reasoning"),
+        ],
+    },
+    "gemini": {
+        "label": "Google (Gemini)",
+        "env_key": "GEMINI_API_KEY",
+        "models": [
+            ("gemini-2.0-flash", "Gemini 2.0 Flash — Recommended"),
+            ("gemini-1.5-pro", "Gemini 1.5 Pro — Most capable"),
+            ("gemini-1.5-flash", "Gemini 1.5 Flash — Balanced"),
+        ],
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "env_key": "OPENROUTER_API_KEY",
+        "models": [
+            ("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B"),
+            ("mistralai/mistral-large", "Mistral Large"),
+            ("deepseek/deepseek-chat", "DeepSeek Chat"),
+            ("qwen/qwen-2.5-72b-instruct", "Qwen 2.5 72B"),
+        ],
+    },
+}
 
 from openmic.audio import AudioRecorder
 from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
@@ -336,29 +403,31 @@ class TranscriptPane(VerticalScroll):
         """Delegate content updates to the inner Static widget."""
         self._content.update(renderable)
 
-    def append_rich(self, text: Text) -> None:
-        """Append a Rich Text object to the display."""
+    def append_rich(self, renderable) -> None:
+        """Append a Rich renderable (Text, Markdown, Group, etc.) to the display."""
         self._show_banner = False
         self._show_welcome = False
-        self._rich_parts.append(text)
+        self._rich_parts.append(renderable)
         self._rebuild_rich_display()
         self._scroll_to_bottom()
 
-    def replace_last_rich(self, text: Text) -> None:
-        """Replace the last Rich Text part (e.g. swap 'Searching...' with answer)."""
+    def replace_last_rich(self, renderable) -> None:
+        """Replace the last Rich part (e.g. swap 'Searching...' with answer)."""
         if self._rich_parts:
-            self._rich_parts[-1] = text
+            self._rich_parts[-1] = renderable
         else:
-            self._rich_parts.append(text)
+            self._rich_parts.append(renderable)
         self._rebuild_rich_display()
         self._scroll_to_bottom()
 
     def _rebuild_rich_display(self) -> None:
-        """Combine all rich parts into one Text and update display."""
-        combined = Text()
-        for part in self._rich_parts:
-            combined.append_text(part)
-        self._content.update(combined)
+        """Combine all rich parts into a Group and update display."""
+        if not self._rich_parts:
+            self._content.update("")
+        elif len(self._rich_parts) == 1:
+            self._content.update(self._rich_parts[0])
+        else:
+            self._content.update(RichGroup(*self._rich_parts))
 
     def clear(self) -> None:
         self._text = ""
@@ -381,6 +450,7 @@ SLASH_COMMANDS = [
     ("/exit", "Quit OpenMic"),
     ("/help", "Show help"),
     ("/history", "List saved transcripts"),
+    ("/model", "Select LLM provider and model"),
     ("/name", "Rename the latest transcript"),
     ("/notes", "Generate structured meeting notes"),
     ("/pause", "Pause recording (resume with /start)"),
@@ -399,6 +469,7 @@ HELP_COMMANDS = [
     ("/transcript <n>", "View transcript by number or name"),
     ("/query <question>", "Ask a question across all transcripts"),
     ("/notes", "Generate notes (with template selection)"),
+    ("/model", "Select LLM provider and model"),
     ("/name <name>", "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose", "Toggle debug output"),
@@ -844,6 +915,142 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
             self.dismiss(self._path_map[event.option.id])
 
 
+class ModelPickerScreen(ModalScreen):
+    """Two-step modal for selecting LLM provider and model."""
+
+    BINDINGS = [Binding("escape", "cancel", "Close")]
+
+    DEFAULT_CSS = """
+    ModelPickerScreen {
+        align: center middle;
+    }
+
+    ModelPickerScreen > Vertical {
+        width: 72;
+        max-height: 80%;
+        background: $surface;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    ModelPickerScreen > Vertical > Static {
+        width: 100%;
+        height: auto;
+    }
+
+    ModelPickerScreen > Vertical > OptionList {
+        height: auto;
+        max-height: 24;
+        background: $surface;
+        border: none;
+    }
+
+    ModelPickerScreen > Vertical > Input {
+        height: auto;
+        margin-top: 1;
+    }
+
+    ModelPickerScreen > Vertical > Button {
+        margin-top: 1;
+        width: 100%;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._step = 1  # 1=provider, 2=model, 3=api-key
+        self._selected_provider: str | None = None
+        self._selected_model: str | None = None
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(id="mp-title")
+            yield OptionList(id="mp-list")
+            yield Input(placeholder="Enter API key...", password=True, id="mp-key")
+            yield Button("Confirm", variant="primary", id="mp-confirm")
+
+    def on_mount(self) -> None:
+        self.query_one("#mp-key").display = False
+        self.query_one("#mp-confirm").display = False
+        self._show_providers()
+
+    def _show_providers(self) -> None:
+        self._step = 1
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+        self.query_one("#mp-title").update(Text("Select Provider", style=f"bold {primary}"))
+        option_list = self.query_one("#mp-list", OptionList)
+        option_list.clear_options()
+        for provider_key, info in MODEL_REGISTRY.items():
+            label = Text()
+            label.append(f"  {info['label']}", style=f"bold {theme.foreground or '#e8e8e8'}")
+            option_list.add_option(Option(label, id=provider_key))
+
+    def _show_models(self, provider: str) -> None:
+        self._step = 2
+        self._selected_provider = provider
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+        info = MODEL_REGISTRY[provider]
+        self.query_one("#mp-title").update(
+            Text(f"Select Model — {info['label']}", style=f"bold {primary}")
+        )
+        option_list = self.query_one("#mp-list", OptionList)
+        option_list.clear_options()
+        for model_id, description in info["models"]:
+            label = Text()
+            label.append(f"  {model_id}\n", style=f"bold {theme.foreground or '#e8e8e8'}")
+            label.append(f"    {description}", style=_muted_color(theme))
+            option_list.add_option(Option(label, id=model_id))
+
+    def _show_api_key_input(self, model: str) -> None:
+        self._step = 3
+        self._selected_model = model
+        theme = self.app.current_theme
+        primary = theme.primary or "#00d4aa"
+        env_key = MODEL_REGISTRY[self._selected_provider]["env_key"]
+        self.query_one("#mp-title").update(
+            Text(f"Enter {env_key}", style=f"bold {primary}")
+        )
+        self.query_one("#mp-list").display = False
+        self.query_one("#mp-key").display = True
+        self.query_one("#mp-confirm").display = True
+        self.query_one("#mp-key").focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if not event.option.id:
+            return
+        if self._step == 1:
+            self._show_models(event.option.id)
+        elif self._step == 2:
+            model = event.option.id
+            env_key = MODEL_REGISTRY[self._selected_provider]["env_key"]
+            if os.environ.get(env_key):
+                self.dismiss((self._selected_provider, model))
+            else:
+                self._show_api_key_input(model)
+
+    def _apply_api_key(self, api_key: str) -> None:
+        if api_key and self._selected_provider:
+            env_key = MODEL_REGISTRY[self._selected_provider]["env_key"]
+            os.environ[env_key] = api_key
+            _update_env_file(env_key, api_key)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "mp-confirm":
+            api_key = self.query_one("#mp-key", Input).value.strip()
+            self._apply_api_key(api_key)
+            self.dismiss((self._selected_provider, self._selected_model))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "mp-key":
+            self._apply_api_key(event.value.strip())
+            self.dismiss((self._selected_provider, self._selected_model))
+
+
 class OpenMicApp(App):
     """OpenMic TUI application."""
 
@@ -907,6 +1114,11 @@ class OpenMicApp(App):
         config = _load_config()
         saved_theme = config.get("theme")
         self.theme = saved_theme if saved_theme in THEME_NAMES else THEME_NAMES[0]
+        # Restore persisted LLM provider/model
+        if config.get("llm_provider"):
+            os.environ.setdefault("LLM_PROVIDER", config["llm_provider"])
+        if config.get("llm_model"):
+            os.environ.setdefault("LLM_MODEL", config["llm_model"])
         self.usage_tracker = UsageTracker()
         self.status_bar = StatusBar(usage_tracker=self.usage_tracker)
         self.transcript_pane = TranscriptPane()
@@ -1161,12 +1373,12 @@ class OpenMicApp(App):
     async def _run_query_on_path(self, question: str, transcript_path: Path) -> None:
         """Run a RAG query against a specific transcript."""
         theme = self.current_theme
-        primary = theme.primary or "#00d4aa"
+        accent = theme.accent or theme.primary or "#00d4aa"
         muted = _muted_color(theme)
         fg = theme.foreground or "#e8e8e8"
-        processing = Text("Querying: ", style=f"italic {muted}")
-        processing.append(question, style=fg)
-        processing.append(f"\n\nSearching {transcript_path.stem}...", style=f"italic {muted}")
+        processing = Text("Searching ", style=f"italic {muted}")
+        processing.append(transcript_path.stem, style=f"italic {muted}")
+        processing.append("...", style=f"italic {muted}")
         self.transcript_pane._show_banner = False
         self.transcript_pane._show_welcome = False
         self.transcript_pane._text = ""
@@ -1178,12 +1390,10 @@ class OpenMicApp(App):
             )
             self.usage_tracker.add_llm_call()
             self.status_bar.refresh_usage()
-            result = Text()
-            result.append("Q: ", style=f"bold {primary}")
-            result.append(f"{question}\n\n")
-            result.append("A: ", style=f"bold {primary}")
-            result.append(f"{answer}\n")
-            self.transcript_pane.update(result)
+            question_block = Text()
+            question_block.append("  > ", style=f"bold {accent}")
+            question_block.append(f"{question}\n\n", style=fg)
+            self.transcript_pane.update(RichGroup(question_block, RichMarkdown(answer), Text("\n")))
             self._viewing = True
         except Exception as e:
             self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
@@ -1209,9 +1419,10 @@ class OpenMicApp(App):
             self.transcript_pane._text = ""
             self.transcript_pane._rich_parts = []
 
-        # Build the "You:" line
+        # Build the user message block
+        accent = theme.accent or primary
         user_line = Text()
-        user_line.append("You: ", style=f"bold {primary}")
+        user_line.append("  > ", style=f"bold {accent}")
         user_line.append(f"{question}\n\n", style=fg)
         self.transcript_pane.append_rich(user_line)
 
@@ -1230,20 +1441,19 @@ class OpenMicApp(App):
             answer = result["answer"]
             sources = result["sources"]
 
-            # Build the AI response
-            ai_response = Text()
-            ai_response.append("AI: ", style=f"bold {primary}")
-            ai_response.append(f"{answer}\n", style=fg)
-
+            # Build AI response as markdown + optional sources line
+            answer_parts: list = [RichMarkdown(answer)]
             if sources:
-                ai_response.append("Sources: ", style=f"bold {muted}")
-                ai_response.append(", ".join(sources), style=muted)
-                ai_response.append("\n")
+                sources_text = Text()
+                sources_text.append("\nSources: ", style=f"bold {muted}")
+                sources_text.append(", ".join(sources), style=muted)
+                sources_text.append("\n\n")
+                answer_parts.append(sources_text)
+            else:
+                answer_parts.append(Text("\n"))
 
-            ai_response.append("\n")
-
-            # Replace the "Searching..." line with the actual answer
-            self.transcript_pane.replace_last_rich(ai_response)
+            # Replace the "Searching..." indicator with the answer
+            self.transcript_pane.replace_last_rich(RichGroup(*answer_parts))
             self._viewing = True
         except Exception as e:
             error_text = Text(f"Error during query: {e}\n\n", style="bold red")
@@ -1554,6 +1764,22 @@ class OpenMicApp(App):
             self.action_show_help()
         elif command == "/cleanup-recordings":
             self._cleanup_recordings()
+        elif command == "/model":
+            def on_model_selected(result) -> None:
+                if result:
+                    provider, model = result
+                    os.environ["LLM_PROVIDER"] = provider
+                    os.environ["LLM_MODEL"] = model
+                    config = _load_config()
+                    config["llm_provider"] = provider
+                    config["llm_model"] = model
+                    _save_config(config)
+                    # Rebuild RAG chain with new LLM
+                    self.rag._vectorstore = None
+                    self.rag._qa_chain = None
+                    label = MODEL_REGISTRY[provider]["label"]
+                    self.transcript_pane.append_text(f"\nLLM set to {label}: {model}\n")
+            self.push_screen(ModelPickerScreen(), on_model_selected)
         elif command == "/verbose":
             self._verbose = not self._verbose
             self.transcriber.verbose = self._verbose

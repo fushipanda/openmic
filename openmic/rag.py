@@ -38,13 +38,27 @@ def get_embeddings():
 def get_llm():
     """Get LLM based on configured provider."""
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+    model = os.environ.get("LLM_MODEL")
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model="gpt-4o-mini")
-    else:
+        return ChatOpenAI(model=model or "gpt-4o-mini")
+    elif provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=model or "gemini-2.0-flash")
+    elif provider == "openrouter":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model or "meta-llama/llama-3.3-70b-instruct",
+            openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
+            openai_api_base="https://openrouter.ai/api/v1",
+        )
+    else:  # anthropic
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model="claude-3-5-sonnet-20241022")
+        kwargs = {}
+        if os.environ.get("LLM_EXTENDED_THINKING", "").lower() == "true":
+            kwargs["model_kwargs"] = {"thinking": {"type": "enabled", "budget_tokens": 8000}}
+        return ChatAnthropic(model=model or "claude-3-5-sonnet-20241022", **kwargs)
 
 
 class TranscriptRAG:
@@ -209,7 +223,10 @@ class TranscriptRAG:
             return None
 
         llm = get_llm()
-        retriever = self._vectorstore.as_retriever(search_kwargs={"k": 4})
+        retriever = self._vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": 8, "fetch_k": 20, "lambda_mult": 0.7},
+        )
 
         # Step 1: History-aware retriever — reformulates follow-up questions
         contextualize_prompt = ChatPromptTemplate.from_messages([
@@ -217,6 +234,7 @@ class TranscriptRAG:
              "Given a chat history and the latest user question which might "
              "reference context in the chat history, formulate a standalone "
              "question which can be understood without the chat history. "
+             "Preserve specific names, dates, and details from the original question. "
              "Do NOT answer the question, just reformulate it if needed "
              "and otherwise return it as is."),
             MessagesPlaceholder("chat_history"),
@@ -229,10 +247,15 @@ class TranscriptRAG:
         # Step 2: QA chain
         qa_prompt = ChatPromptTemplate.from_messages([
             ("system",
-             "You are a helpful assistant that answers questions about "
-             "meeting transcripts. Use the following retrieved context to "
-             "answer the question. If you don't know the answer, say so. "
-             "Keep answers concise.\n\n{context}"),
+             "You are a helpful assistant answering questions about meeting transcripts.\n\n"
+             "Use the retrieved context below to answer. Follow these rules:\n"
+             "1. If the answer is in the context, quote the relevant passage, then explain.\n"
+             "2. If the context is partial, share what you found and note what's missing.\n"
+             "3. If the context is insufficient, say \"I couldn't find that specifically —\" "
+             "then describe what related information IS available, and suggest rephrasing.\n"
+             "4. Never say just \"I don't know.\" Always offer next steps.\n"
+             "5. Be specific about which transcript/date the information comes from.\n\n"
+             "{context}"),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}"),
         ])
@@ -310,14 +333,22 @@ class TranscriptRAG:
 
         qa_prompt = ChatPromptTemplate.from_messages([
             ("system",
-             "You are a helpful assistant that answers questions about "
-             "meeting transcripts. Use the following retrieved context to "
-             "answer the question. If you don't know the answer, say so. "
-             "Keep answers concise.\n\n{context}"),
+             "You are a helpful assistant answering questions about meeting transcripts.\n\n"
+             "Use the retrieved context below to answer. Follow these rules:\n"
+             "1. If the answer is in the context, quote the relevant passage, then explain.\n"
+             "2. If the context is partial, share what you found and note what's missing.\n"
+             "3. If the context is insufficient, say \"I couldn't find that specifically —\" "
+             "then describe what related information IS available, and suggest rephrasing.\n"
+             "4. Never say just \"I don't know.\" Always offer next steps.\n"
+             "5. Be specific about which transcript/date the information comes from.\n\n"
+             "{context}"),
             ("human", "{input}"),
         ])
         question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": 8, "fetch_k": 20, "lambda_mult": 0.7},
+        )
         chain = create_retrieval_chain(retriever, question_answer_chain)
 
         result = chain.invoke({"input": question})
