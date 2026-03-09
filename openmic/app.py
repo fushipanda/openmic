@@ -681,6 +681,7 @@ class HelpScreen(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
+        Binding("ctrl+c", "app.quit", "Quit", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -766,6 +767,7 @@ class TemplatePickerScreen(ModalScreen[str | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Close"),
+        Binding("ctrl+c", "app.quit", "Quit", show=False),
     ]
 
     def action_cancel(self) -> None:
@@ -853,6 +855,7 @@ class ConfirmOverwriteScreen(ModalScreen[bool]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Close"),
+        Binding("ctrl+c", "app.quit", "Quit", show=False),
     ]
 
     def action_cancel(self) -> None:
@@ -921,6 +924,7 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Close"),
+        Binding("ctrl+c", "app.quit", "Quit", show=False),
     ]
 
     def action_cancel(self) -> None:
@@ -1010,7 +1014,10 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
 class ModelPickerScreen(ModalScreen):
     """Flat modal for selecting LLM provider and model."""
 
-    BINDINGS = [Binding("escape", "cancel", "Close")]
+    BINDINGS = [
+        Binding("escape", "cancel", "Close"),
+        Binding("ctrl+c", "app.quit", "Quit", show=False),
+    ]
 
     DEFAULT_CSS = """
     ModelPickerScreen {
