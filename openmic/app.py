@@ -2029,6 +2029,21 @@ class OpenMicApp(App):
 
 def main() -> None:
     """Entry point for the OpenMic application."""
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "setup":
+        from openmic.setup import run_setup
+        run_setup()
+        return
+
+    config = _load_config()
+    if not config.get("setup_complete"):
+        from openmic.setup import run_setup
+        run_setup()
+        config = _load_config()
+        if not config.get("setup_complete"):
+            return  # User cancelled
+
     app = OpenMicApp()
     app.run()
 

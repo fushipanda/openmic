@@ -55,6 +55,16 @@ ANTHROPIC_API_KEY=...        # add whichever provider you set above
 
 ## Active TODO
 
+### ✅ FR-33: `openmic setup` Onboarding Wizard
+- [x] `openmic/setup.py` — SetupApp/SetupScreen with multi-step wizard (welcome → provider → install deps → API keys → done)
+- [x] `PROVIDER_DEPS` mapping and `_get_required_keys()` per provider
+- [x] Pip install in `@work` thread, skips keys already in env
+- [x] Saves `setup_complete`, provider, model to `settings.json` + keys to `.env`
+- [x] `main()` routes `openmic setup` subcommand and auto-launches on first run
+- [x] `install.sh` — curl-installable script (pipx → uv → pip fallback)
+- [x] `tests/test_setup.py` — 15 tests (key mapping, deps, routing, skip logic)
+- [x] README updated with simplified installation flow
+
 ### ✅ FR-27: Chat UI Redesign
 - [x] User messages: `  > question` with accent-colored `>` prefix, no "You:" label
 - [x] AI responses: rendered as Rich Markdown via `RichGroup`, no "AI:" label
@@ -131,7 +141,7 @@ All feature requests and bugs have been successfully implemented, tested, and pu
 - `e183fe8` - FR-25: Improve notes title formatting for better readability
 - `5794ccc` - FR-22: Enhance session credit/usage display with clearer labeling
 
-**Tests:** 163/163 passing ✅
+**Tests:** 190/190 passing ✅
 
 ---
 

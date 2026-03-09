@@ -3,7 +3,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Built with Claude Code](https://img.shields.io/badge/built_with-Claude_Code-blueviolet.svg)](https://github.com/anthropics/claude-code)
 [![Textual](https://img.shields.io/badge/TUI-Textual-FF69B4.svg)](https://textual.textualize.io/)
-[![Tests: 163/163](https://img.shields.io/badge/tests-163%2F163-brightgreen.svg)](#development)
+[![Tests: 190/190](https://img.shields.io/badge/tests-190%2F190-brightgreen.svg)](#development)
 
 > A beautiful CLI/TUI for meeting transcription with live preview, speaker diarization, and RAG-powered querying.
 
@@ -30,61 +30,54 @@ OpenMic is a terminal-based meeting transcription tool that:
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.12 or higher
-- A microphone
-- API keys (see [Configuration](#configuration))
-
-### Setup
+### Quick Install
 
 ```bash
-# Clone the repository
+curl -fsSL https://raw.githubusercontent.com/fushipanda/openmic/main/install.sh | bash
+```
+
+This checks for Python 3.12+, installs OpenMic via pipx/uv/pip, and you're ready to go. The first time you run `openmic`, a setup wizard walks you through provider selection and API key configuration.
+
+### Manual Install
+
+```bash
+pip install git+https://github.com/fushipanda/openmic.git
+openmic setup  # interactive setup wizard
+```
+
+### From Source (Development)
+
+```bash
 git clone https://github.com/fushipanda/openmic.git
 cd openmic
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies (choose your LLM provider)
-pip install -e ".[anthropic]"  # For Claude (Anthropic)
-# or
-pip install -e ".[openai]"     # For GPT-4/3.5 (OpenAI)
+source venv/bin/activate
+pip install -e ".[dev,anthropic,openai]"
+openmic setup
 ```
 
 ---
 
 ## Configuration
 
+The setup wizard (`openmic setup`) handles configuration interactively. It will:
+
+1. Let you choose an LLM provider (Anthropic, OpenAI, Gemini, or OpenRouter)
+2. Install the required LangChain packages
+3. Prompt for API keys (skips any already set in your environment)
+4. Save everything to `~/.config/openmic/settings.json` and `.env`
+
+You can re-run `openmic setup` at any time to reconfigure.
+
 ### API Keys Required
 
-OpenMic needs three API keys:
-
-1. **ElevenLabs** - For audio transcription (realtime + batch)
-2. **OpenAI** - For embeddings (RAG search) - *always required, even if using Claude*
-3. **Anthropic OR OpenAI** - For LLM completions (answering queries, generating notes)
-
-### Setup `.env`
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your keys:
-
-```bash
-# Required: Transcription service
-ELEVENLABS_API_KEY=your_elevenlabs_api_key
-
-# Required: Embeddings for RAG (always needed)
-OPENAI_API_KEY=your_openai_api_key
-
-# Required: LLM provider (choose one)
-LLM_PROVIDER=anthropic  # or "openai"
-ANTHROPIC_API_KEY=your_anthropic_api_key  # if using Claude
-# OPENAI_API_KEY already set above for embeddings
-```
+| Key | Purpose | Required |
+|-----|---------|----------|
+| `ELEVENLABS_API_KEY` | Audio transcription (realtime + batch) | Always |
+| `OPENAI_API_KEY` | Embeddings for RAG search | Always |
+| `ANTHROPIC_API_KEY` | Claude LLM | If using Anthropic |
+| `GEMINI_API_KEY` | Gemini LLM | If using Gemini |
+| `OPENROUTER_API_KEY` | OpenRouter LLM | If using OpenRouter |
 
 > **Why OpenAI API key if using Claude?**
 > Anthropic doesn't provide an embeddings API. OpenMic uses OpenAI embeddings for the RAG search feature (`/query` command), while using Claude (or GPT) for generating answers and notes.
@@ -270,7 +263,7 @@ See [Developer Guide](#developer-guide) below for detailed data flow diagrams.
 
 ### Running Tests
 
-OpenMic includes a comprehensive test suite with **163 passing tests** covering:
+OpenMic includes a comprehensive test suite with **190 passing tests** covering:
 - Storage operations (transcripts, notes, templates)
 - Transcription parsing (diarization, error handling)
 - RAG pipeline (vector search, LLM provider selection)
