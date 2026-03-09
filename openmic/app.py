@@ -72,29 +72,29 @@ MODEL_REGISTRY: dict[str, dict] = {
         "label": "Anthropic (Claude)",
         "env_key": "ANTHROPIC_API_KEY",
         "models": [
-            ("claude-opus-4-6", "Claude Opus 4.6 — Most capable"),
-            ("claude-sonnet-4-6", "Claude Sonnet 4.6 — Recommended"),
-            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet — Stable"),
-            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 — Fastest"),
+            ("claude-opus-4-6", "Most capable"),
+            ("claude-sonnet-4-6", "Recommended"),
+            ("claude-3-5-sonnet-20241022", "Stable"),
+            ("claude-haiku-4-5-20251001", "Fastest"),
         ],
     },
     "openai": {
         "label": "OpenAI (GPT)",
         "env_key": "OPENAI_API_KEY",
         "models": [
-            ("gpt-4o", "GPT-4o — Most capable"),
-            ("gpt-4o-mini", "GPT-4o Mini — Recommended"),
-            ("o1", "o1 — Reasoning"),
-            ("o3-mini", "o3-mini — Fast reasoning"),
+            ("gpt-4o", "Most capable"),
+            ("gpt-4o-mini", "Recommended"),
+            ("o1", "Reasoning"),
+            ("o3-mini", "Fast reasoning"),
         ],
     },
     "gemini": {
         "label": "Google (Gemini)",
         "env_key": "GEMINI_API_KEY",
         "models": [
-            ("gemini-2.0-flash", "Gemini 2.0 Flash — Recommended"),
-            ("gemini-1.5-pro", "Gemini 1.5 Pro — Most capable"),
-            ("gemini-1.5-flash", "Gemini 1.5 Flash — Balanced"),
+            ("gemini-2.0-flash", "Recommended"),
+            ("gemini-1.5-pro", "Most capable"),
+            ("gemini-1.5-flash", "Balanced"),
         ],
     },
     "openrouter": {
@@ -1034,7 +1034,9 @@ class ModelPickerScreen(ModalScreen):
         max-height: 20;
         background: $surface;
         border: none;
-        scrollbar-size-vertical: 1;
+        padding: 0;
+        margin: 0;
+        scrollbar-size-vertical: 0;
     }
 
     ModelPickerScreen > Vertical > Input {
