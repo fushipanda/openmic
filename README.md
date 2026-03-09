@@ -11,31 +11,6 @@
 
 ---
 
-## About This Project
-
-**This project is an experiment in AI-assisted development using Claude Code's Ralph Loop functionality.**
-
-I created OpenMic during a single extended Ralph Loop session to explore what could be built with iterative AI assistance. The goal was to create something genuinely useful—a meeting transcription tool I actually wanted—while testing Claude Code's capabilities for complex, multi-component projects.
-
-### What is Ralph Loop?
-
-Ralph Loop is Claude Code's agentic workflow that enables continuous iteration: I provided feedback and requirements, Claude implemented features, fixed bugs, and added tests—all in a conversational loop. This README, the 163 passing tests, the comprehensive architecture, and all 50+ commits were produced through that collaboration.
-
-### Development Process
-
-- **One session, continuous iteration** - Built from scratch to current state in a single Ralph Loop
-- **163 automated tests** - Comprehensive coverage for storage, transcription, RAG, and notes
-- **50+ commits** - All following proper git hygiene and semantic commit messages
-- **Full transparency** - See [CLAUDE.md](./CLAUDE.md) for the complete development instructions and TODO history
-
-### Current Status
-
-⚠️ **Work in Progress** - This is a functional proof-of-concept but still evolving. The core features work well (recording, transcription, RAG querying, notes generation), but there are known limitations documented below.
-
-**Key takeaway**: This demonstrates what's possible when using AI as a development partner—not just for code generation, but for architecture, testing, debugging, and iterative refinement.
-
----
-
 ## What It Does
 
 OpenMic is a terminal-based meeting transcription tool that:
@@ -404,10 +379,17 @@ For detailed technical documentation, see the full data flow and architecture di
 
 ---
 
+## How This Was Built
+
+I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) over an evening — giving it requirements, reviewing what it produced, then feeding back corrections and new ideas. The whole thing, from an empty directory to the current state (architecture, 163 tests, 50+ commits, this README), came out of that process. It's still a work in progress, but genuinely useful for what it does.
+
+The workflow is called Ralph Loop — Claude Code's agentic mode where it iterates continuously based on your feedback. If you're curious about the full history, [CLAUDE.md](./CLAUDE.md) has the complete TODO list and every decision made along the way.
+
+---
+
 ## Acknowledgments
 
-**Built entirely with [Claude Code](https://github.com/anthropics/claude-code)** using Ralph Loop for iterative development.
-
+- **[Claude Code](https://github.com/anthropics/claude-code)** - Used to build this project iteratively
 - **Textual** - Excellent TUI framework by [Textualize](https://www.textualize.io/)
 - **ElevenLabs Scribe** - High-quality audio transcription with diarization
 - **LangChain** - Flexible framework for RAG and LLM chains
@@ -427,4 +409,3 @@ MIT License - See [LICENSE](./LICENSE) file for details.
 - **Read the code**: All modules are documented with clear data flow and extension points
 - **Run the tests**: 163 automated tests demonstrate usage patterns
 
-This project is a testament to what's possible with AI-assisted development. The code quality, test coverage, and documentation were all produced through iterative collaboration between human intent and AI execution.
