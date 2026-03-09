@@ -210,6 +210,20 @@ class UsageTracker:
             return "Session: " + " · ".join(parts)
         return ""
 
+    @staticmethod
+    def current_model_label() -> str:
+        """Return a short label for the active LLM model."""
+        model = os.environ.get("LLM_MODEL", "")
+        provider = os.environ.get("LLM_PROVIDER", "")
+        if model:
+            return model
+        # Fallback: show provider default
+        if provider:
+            info = MODEL_REGISTRY.get(provider)
+            if info and info["models"]:
+                return info["models"][0][0]
+        return ""
+
 
 class StatusBar(Static):
     """Status bar showing recording state and session usage."""
@@ -236,24 +250,29 @@ class StatusBar(Static):
         else:
             status = Text("○ IDLE", style=muted)
 
-        # Right side: usage info
-        usage_str = ""
+        # Right side: model + usage info
+        right_parts = []
+        model_label = UsageTracker.current_model_label()
+        if model_label:
+            right_parts.append(model_label)
         if self._usage_tracker:
             usage_str = self._usage_tracker.summary()
+            if usage_str:
+                right_parts.append(usage_str)
 
-        if usage_str:
-            # Build a line with status centered/left and usage right-aligned
+        right_str = " · ".join(right_parts)
+        if right_str:
             try:
                 width = self.size.width - 2  # account for padding
             except Exception:
                 width = 80
             status_len = len(status.plain)
-            usage_len = len(usage_str)
-            padding = max(1, width - status_len - usage_len)
+            right_len = len(right_str)
+            padding = max(1, width - status_len - right_len)
             text = Text()
             text.append(status)
             text.append(" " * padding)
-            text.append(usage_str, style=muted)
+            text.append(right_str, style=muted)
             self.update(text)
         else:
             self.update(status)
@@ -998,7 +1017,7 @@ class ModelPickerScreen(ModalScreen):
     }
 
     ModelPickerScreen > Vertical {
-        width: 56;
+        width: 64;
         max-height: 80%;
         background: $surface;
         border: round $primary;
@@ -1012,9 +1031,10 @@ class ModelPickerScreen(ModalScreen):
 
     ModelPickerScreen > Vertical > OptionList {
         height: auto;
-        max-height: 30;
+        max-height: 20;
         background: $surface;
         border: none;
+        scrollbar-size-vertical: 1;
     }
 
     ModelPickerScreen > Vertical > Input {
@@ -1056,7 +1076,16 @@ class ModelPickerScreen(ModalScreen):
         fg = theme.foreground or "#e8e8e8"
         muted = _muted_color(theme)
 
-        self.query_one("#mp-title").update(Text("Select Model", style=f"bold {primary}"))
+        current_provider = os.environ.get("LLM_PROVIDER", "")
+        current_model = os.environ.get("LLM_MODEL", "")
+
+        # Title with current model subtitle
+        title = Text()
+        title.append("Select Model", style=f"bold {primary}")
+        if current_model:
+            title.append(f"\n  Current: {current_model}", style=muted)
+        self.query_one("#mp-title").update(title)
+
         option_list = self.query_one("#mp-list", OptionList)
         option_list.clear_options()
 
@@ -1070,9 +1099,15 @@ class ModelPickerScreen(ModalScreen):
             option_list.add_option(Option(header, disabled=True))
             # Models
             for model_id, description in info["models"]:
+                is_current = provider_key == current_provider and model_id == current_model
                 label = Text()
-                label.append(f"  {model_id}", style=f"bold {fg}")
-                pad = max(1, 38 - len(model_id))
+                if is_current:
+                    label.append("  ✓ ", style=f"bold {primary}")
+                    label.append(model_id, style=f"bold {primary}")
+                else:
+                    label.append(f"    {model_id}", style=f"bold {fg}")
+                display_len = len(model_id) + 4
+                pad = max(1, 40 - display_len)
                 label.append(" " * pad)
                 label.append(description, style=muted)
                 option_list.add_option(Option(label, id=f"{provider_key}:{model_id}"))
