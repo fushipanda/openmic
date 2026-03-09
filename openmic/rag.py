@@ -179,6 +179,9 @@ class TranscriptRAG:
         if index_exists:
             try:
                 embeddings = get_embeddings()
+                # SECURITY: allow_dangerous_deserialization is required by LangChain's
+                # FAISS integration (it uses pickle). The index directory is protected
+                # with 0o700 permissions to limit access to the current user only.
                 store = FAISS.load_local(
                     str(INDEX_DIR), embeddings, allow_dangerous_deserialization=True
                 )
@@ -211,7 +214,7 @@ class TranscriptRAG:
 
         # Persist
         if store is not None:
-            INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            INDEX_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
             store.save_local(str(INDEX_DIR))
             self._save_manifest(self._build_manifest())
 

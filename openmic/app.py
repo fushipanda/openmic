@@ -47,6 +47,7 @@ def _save_config(config: dict) -> None:
 
 def _update_env_file(key: str, value: str) -> None:
     """Write or update a key=value pair in the .env file."""
+    value = value.replace("\n", "").replace("\r", "")
     env_path = Path(".env")
     if not env_path.exists():
         # Fall back to config dir
@@ -1442,7 +1443,8 @@ class OpenMicApp(App):
                 self.command_input.placeholder = "Name this session (Enter to skip)"
                 self.command_input.focus()
         except Exception as e:
-            self.transcript_pane.append_text(f"\n\nError during transcription: {e}\n")
+            self.log.error(f"Transcription error: {e}")
+            self.transcript_pane.append_text("\n\nError during transcription. Check logs for details.\n")
 
     def _display_diarized_transcript(self, segments: list[dict]) -> None:
         """Display diarized transcript with styled speaker labels."""
@@ -1524,7 +1526,8 @@ class OpenMicApp(App):
             self.transcript_pane.update(RichGroup(question_block, RichMarkdown(answer), Text("\n")))
             self._viewing = True
         except Exception as e:
-            self.transcript_pane.append_text(f"\n\nError during query: {e}\n")
+            self.log.error(f"Query error: {e}")
+            self.transcript_pane.append_text("\n\nError during query. Check logs for details.\n")
 
     async def _run_query_all(self, question: str) -> None:
         """Run a RAG query across all transcripts with source citations."""
@@ -1584,7 +1587,8 @@ class OpenMicApp(App):
             self.transcript_pane.replace_last_rich(RichGroup(*answer_parts))
             self._viewing = True
         except Exception as e:
-            error_text = Text(f"Error during query: {e}\n\n", style="bold red")
+            self.log.error(f"Query error: {e}")
+            error_text = Text("Error during query. Check logs for details.\n\n", style="bold red")
             self.transcript_pane.replace_last_rich(error_text)
 
     async def _generate_notes(self) -> None:

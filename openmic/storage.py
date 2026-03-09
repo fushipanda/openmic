@@ -1,7 +1,13 @@
 """Storage utilities for transcripts and notes."""
 
+import re
 from datetime import datetime
 from pathlib import Path
+
+
+def _sanitize_name(name: str) -> str:
+    """Strip unsafe characters from session names to prevent path traversal."""
+    return re.sub(r'[^a-zA-Z0-9_\-]', '', name.strip().replace(" ", "_"))
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -59,6 +65,7 @@ def save_transcript(segments: list[dict], session_name: str | None = None) -> Pa
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     if session_name:
+        session_name = _sanitize_name(session_name)
         filename = f"{timestamp}_{session_name}.md"
     else:
         filename = f"{timestamp}.md"
@@ -112,7 +119,7 @@ def rename_transcript(old_path: Path, new_name: str) -> Path:
     stem = old_path.stem
     # Timestamp format is YYYY-MM-DD_HH-MM, which is 16 chars
     timestamp = stem[:16]
-    new_name = new_name.strip().replace(" ", "_")
+    new_name = _sanitize_name(new_name)
     new_filename = f"{timestamp}_{new_name}.md"
     new_path = old_path.parent / new_filename
 
