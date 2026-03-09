@@ -6,6 +6,7 @@ warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, date
 from pathlib import Path
 
@@ -477,7 +478,7 @@ class CommandInput(Input):
     """Command input at the bottom of the screen."""
 
     def __init__(self) -> None:
-        super().__init__(placeholder="Ask a question, or type / for commands...")
+        super().__init__(placeholder="Ask a question, @ to pick a transcript, / for commands...")
 
 
 SLASH_COMMANDS = [
@@ -516,6 +517,8 @@ HELP_COMMANDS = [
     ("Ctrl+C", "Quit"),
     ("Ctrl+?", "Show this help"),
     ("", ""),
+    ("@transcript", "Scope query to a specific transcript"),
+    ("", ""),
     ("Tip", "Type any question directly to search all transcripts"),
 ]
 
@@ -543,6 +546,9 @@ class AutocompleteDropdown(Static):
         super().__init__(" ")
         self._matches: list[tuple[str, str]] = []
         self._selected_index: int = 0
+        self._mode: str = "command"  # "command" or "transcript"
+        self._transcript_matches: list[tuple[str, Path]] = []  # (display_name, path)
+        self._at_start_pos: int = -1  # position of @ in input
 
     def update_matches(self, query: str) -> None:
         """Filter commands matching the query and update the display."""
@@ -612,9 +618,40 @@ class AutocompleteDropdown(Static):
             return self._matches[self._selected_index][0]
         return None
 
+    def update_transcript_matches(self, filter_text: str, transcript_metas: list[dict]) -> None:
+        """Filter transcript names and show matching options."""
+        self._mode = "transcript"
+        search = filter_text.lower()
+        self._transcript_matches = []
+        self._matches = []
+
+        for meta in transcript_metas:
+            ts = meta["path"].stem[:16]
+            name = meta["name"]
+            display = format_transcript_title(ts, name)
+            if not search or search in display.lower() or (name and search in name.lower()):
+                self._transcript_matches.append((display, meta["path"]))
+                self._matches.append((display, ""))
+
+        self._selected_index = 0
+        if not self._matches:
+            self.display = False
+            return
+        self._render_content()
+        self.display = True
+
+    def get_selected_transcript(self) -> tuple[str, Path] | None:
+        """Return (display_name, path) of the highlighted transcript match."""
+        if self._transcript_matches and 0 <= self._selected_index < len(self._transcript_matches):
+            return self._transcript_matches[self._selected_index]
+        return None
+
     def hide(self) -> None:
         """Hide the dropdown."""
         self._matches = []
+        self._mode = "command"
+        self._at_start_pos = -1
+        self._transcript_matches = []
         self.update("")
         self.display = False
 
@@ -951,7 +988,7 @@ class TranscriptPickerScreen(ModalScreen[Path | None]):
 
 
 class ModelPickerScreen(ModalScreen):
-    """Two-step modal for selecting LLM provider and model."""
+    """Flat modal for selecting LLM provider and model."""
 
     BINDINGS = [Binding("escape", "cancel", "Close")]
 
@@ -961,7 +998,7 @@ class ModelPickerScreen(ModalScreen):
     }
 
     ModelPickerScreen > Vertical {
-        width: 72;
+        width: 56;
         max-height: 80%;
         background: $surface;
         border: round $primary;
@@ -975,7 +1012,7 @@ class ModelPickerScreen(ModalScreen):
 
     ModelPickerScreen > Vertical > OptionList {
         height: auto;
-        max-height: 24;
+        max-height: 30;
         background: $surface;
         border: none;
     }
@@ -993,9 +1030,9 @@ class ModelPickerScreen(ModalScreen):
 
     def __init__(self) -> None:
         super().__init__()
-        self._step = 1  # 1=provider, 2=model, 3=api-key
         self._selected_provider: str | None = None
         self._selected_model: str | None = None
+        self._awaiting_key = False
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -1010,40 +1047,38 @@ class ModelPickerScreen(ModalScreen):
     def on_mount(self) -> None:
         self.query_one("#mp-key").display = False
         self.query_one("#mp-confirm").display = False
-        self._show_providers()
+        self._populate_list()
 
-    def _show_providers(self) -> None:
-        self._step = 1
+    def _populate_list(self) -> None:
+        """Build a flat list with provider headers and all models."""
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
-        self.query_one("#mp-title").update(Text("Select Provider", style=f"bold {primary}"))
+        fg = theme.foreground or "#e8e8e8"
+        muted = _muted_color(theme)
+
+        self.query_one("#mp-title").update(Text("Select Model", style=f"bold {primary}"))
         option_list = self.query_one("#mp-list", OptionList)
         option_list.clear_options()
+
+        first = True
         for provider_key, info in MODEL_REGISTRY.items():
-            label = Text()
-            label.append(f"  {info['label']}", style=f"bold {theme.foreground or '#e8e8e8'}")
-            option_list.add_option(Option(label, id=provider_key))
+            if not first:
+                option_list.add_option(None)  # Separator
+            first = False
+            # Provider header (disabled)
+            header = Text(f"  {info['label']}", style="bold")
+            option_list.add_option(Option(header, disabled=True))
+            # Models
+            for model_id, description in info["models"]:
+                label = Text()
+                label.append(f"  {model_id}", style=f"bold {fg}")
+                pad = max(1, 38 - len(model_id))
+                label.append(" " * pad)
+                label.append(description, style=muted)
+                option_list.add_option(Option(label, id=f"{provider_key}:{model_id}"))
 
-    def _show_models(self, provider: str) -> None:
-        self._step = 2
-        self._selected_provider = provider
-        theme = self.app.current_theme
-        primary = theme.primary or "#00d4aa"
-        info = MODEL_REGISTRY[provider]
-        self.query_one("#mp-title").update(
-            Text(f"Select Model — {info['label']}", style=f"bold {primary}")
-        )
-        option_list = self.query_one("#mp-list", OptionList)
-        option_list.clear_options()
-        for model_id, description in info["models"]:
-            label = Text()
-            label.append(f"  {model_id}\n", style=f"bold {theme.foreground or '#e8e8e8'}")
-            label.append(f"    {description}", style=_muted_color(theme))
-            option_list.add_option(Option(label, id=model_id))
-
-    def _show_api_key_input(self, model: str) -> None:
-        self._step = 3
-        self._selected_model = model
+    def _show_api_key_input(self) -> None:
+        self._awaiting_key = True
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
         env_key = MODEL_REGISTRY[self._selected_provider]["env_key"]
@@ -1058,15 +1093,18 @@ class ModelPickerScreen(ModalScreen):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if not event.option.id:
             return
-        if self._step == 1:
-            self._show_models(event.option.id)
-        elif self._step == 2:
-            model = event.option.id
-            env_key = MODEL_REGISTRY[self._selected_provider]["env_key"]
-            if os.environ.get(env_key):
-                self.dismiss((self._selected_provider, model))
-            else:
-                self._show_api_key_input(model)
+        # Parse "provider:model_id" from the option id
+        parts = event.option.id.split(":", 1)
+        if len(parts) != 2:
+            return
+        provider, model = parts
+        self._selected_provider = provider
+        self._selected_model = model
+        env_key = MODEL_REGISTRY[provider]["env_key"]
+        if os.environ.get(env_key):
+            self.dismiss((provider, model))
+        else:
+            self._show_api_key_input()
 
     def _apply_api_key(self, api_key: str) -> None:
         if api_key and self._selected_provider:
@@ -1668,8 +1706,24 @@ class OpenMicApp(App):
 
     def _reset_command_input(self) -> None:
         """Reset command input to default state."""
-        self.command_input.placeholder = "Ask a question, or type / for commands..."
+        self.command_input.placeholder = "Ask a question, @ to pick a transcript, / for commands..."
         self._awaiting_session_name = False
+
+    @staticmethod
+    def _find_active_at(value: str) -> int:
+        """Return position of the @ the user is currently typing (not inside @[...]), or -1."""
+        i = len(value) - 1
+        while i >= 0:
+            if value[i] == "@":
+                # Check it's not part of a completed @[...]
+                rest = value[i:]
+                if rest.startswith("@[") and "]" in rest[2:]:
+                    # This @ is already completed — skip it
+                    i -= 1
+                    continue
+                return i
+            i -= 1
+        return -1
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Update autocomplete dropdown as the user types."""
@@ -1677,7 +1731,30 @@ class OpenMicApp(App):
             # Don't reset matches while Tab is cycling through commands
             self._tab_cycling = False
             return
-        self.autocomplete.update_matches(event.value.strip())
+
+        value = event.value
+        at_pos = self._find_active_at(value)
+        if at_pos >= 0:
+            # @ detected — show transcript matches
+            filter_text = value[at_pos + 1:]
+            self.autocomplete._at_start_pos = at_pos
+            transcripts = list_transcripts()
+            metas = [_parse_transcript_meta(p) for p in transcripts]
+            self.autocomplete.update_transcript_matches(filter_text, metas)
+            return
+
+        self.autocomplete.update_matches(value.strip())
+
+    def _splice_transcript_mention(self, display_name: str) -> None:
+        """Replace the active @... token with @[Display Name] in the input."""
+        at_pos = self.autocomplete._at_start_pos
+        if at_pos < 0:
+            return
+        prefix = self.command_input.value[:at_pos]
+        new_value = f"{prefix}@[{display_name}] "
+        self._tab_cycling = True
+        self.command_input.value = new_value
+        self.command_input.cursor_position = len(new_value)
 
     def on_key(self, event) -> None:
         """Handle keyboard events for autocomplete navigation."""
@@ -1692,43 +1769,105 @@ class OpenMicApp(App):
             event.prevent_default()
             event.stop()
         elif event.key == "tab":
-            # Tab cycles forward through matching commands
-            selected = self.autocomplete.get_selected()
-            if selected:
-                current_val = self.command_input.value.strip()
-                if current_val == selected:
-                    # Already showing this match — advance to next
-                    self.autocomplete.move_selection(1)
-                    selected = self.autocomplete.get_selected()
-                # Fill the input with the selected command (set flag to avoid resetting matches)
+            if self.autocomplete._mode == "transcript":
+                result = self.autocomplete.get_selected_transcript()
+                if result:
+                    # Check if already spliced — if so, cycle to next
+                    current = self.command_input.value
+                    if f"@[{result[0]}]" in current:
+                        self.autocomplete.move_selection(1)
+                        result = self.autocomplete.get_selected_transcript()
+                    if result:
+                        self._splice_transcript_mention(result[0])
+                event.prevent_default()
+                event.stop()
+            else:
+                # Tab cycles forward through matching commands
+                selected = self.autocomplete.get_selected()
                 if selected:
-                    self._tab_cycling = True
-                    self.command_input.value = selected
-                    self.command_input.cursor_position = len(self.command_input.value)
-            event.prevent_default()
-            event.stop()
+                    current_val = self.command_input.value.strip()
+                    if current_val == selected:
+                        self.autocomplete.move_selection(1)
+                        selected = self.autocomplete.get_selected()
+                    if selected:
+                        self._tab_cycling = True
+                        self.command_input.value = selected
+                        self.command_input.cursor_position = len(self.command_input.value)
+                event.prevent_default()
+                event.stop()
         elif event.key == "shift+tab":
-            # Shift+Tab cycles backward through matching commands
-            selected = self.autocomplete.get_selected()
-            if selected:
-                current_val = self.command_input.value.strip()
-                if current_val == selected:
-                    # Already showing this match — go to previous
-                    self.autocomplete.move_selection(-1)
-                    selected = self.autocomplete.get_selected()
+            if self.autocomplete._mode == "transcript":
+                self.autocomplete.move_selection(-1)
+                result = self.autocomplete.get_selected_transcript()
+                if result:
+                    self._splice_transcript_mention(result[0])
+                event.prevent_default()
+                event.stop()
+            else:
+                selected = self.autocomplete.get_selected()
                 if selected:
-                    self._tab_cycling = True
-                    self.command_input.value = selected
-                    self.command_input.cursor_position = len(self.command_input.value)
-            event.prevent_default()
-            event.stop()
+                    current_val = self.command_input.value.strip()
+                    if current_val == selected:
+                        self.autocomplete.move_selection(-1)
+                        selected = self.autocomplete.get_selected()
+                    if selected:
+                        self._tab_cycling = True
+                        self.command_input.value = selected
+                        self.command_input.cursor_position = len(self.command_input.value)
+                event.prevent_default()
+                event.stop()
         elif event.key == "escape":
             self.autocomplete.hide()
             event.prevent_default()
             event.stop()
 
+    def _resolve_transcript_mention(self, mention_name: str) -> Path | None:
+        """Resolve a @[Name] mention to a transcript path."""
+        transcripts = list_transcripts()
+        # Exact match first
+        for path in transcripts:
+            meta = _parse_transcript_meta(path)
+            ts = path.stem[:16]
+            display = format_transcript_title(ts, meta["name"])
+            if display == mention_name:
+                return path
+        # Case-insensitive substring fallback
+        search = mention_name.lower()
+        for path in transcripts:
+            meta = _parse_transcript_meta(path)
+            ts = path.stem[:16]
+            display = format_transcript_title(ts, meta["name"])
+            if search in display.lower():
+                return path
+        return None
+
+    async def _handle_mention_query(self, text: str) -> bool:
+        """Parse @[Name] mention in text and run a scoped query. Returns True if handled."""
+        mention_match = re.search(r'@\[([^\]]+)\]', text)
+        if not mention_match:
+            return False
+        mention_name = mention_match.group(1)
+        question = re.sub(r'@\[[^\]]+\]', '', text).strip()
+        if not question:
+            self.transcript_pane.append_text("\nPlease include a question with your @mention.\n")
+            return True
+        path = self._resolve_transcript_mention(mention_name)
+        if path:
+            await self._run_query_on_path(question, path)
+        else:
+            self.transcript_pane.append_text(f"\nTranscript not found: {mention_name}\n")
+        return True
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input."""
+        # If transcript autocomplete is showing, complete the mention instead of submitting
+        if self.autocomplete._mode == "transcript" and self.autocomplete.display:
+            result = self.autocomplete.get_selected_transcript()
+            if result:
+                self._splice_transcript_mention(result[0])
+                self.autocomplete.hide()
+            return
+
         # If autocomplete is showing and typed text is a partial match,
         # fill in the selected command instead of executing
         typed = event.value.strip()
@@ -1779,7 +1918,9 @@ class OpenMicApp(App):
         elif command.startswith("/query"):
             query_text = command[6:].strip()
             if query_text:
-                await self._run_query_all(query_text)
+                handled = await self._handle_mention_query(query_text)
+                if not handled:
+                    await self._run_query_all(query_text)
             else:
                 self.transcript_pane.append_text("\nUsage: /query <your question>\n")
         elif command == "/notes":
@@ -1832,7 +1973,9 @@ class OpenMicApp(App):
             self.transcript_pane.append_text(f"\nVerbose mode: {state}\n")
         elif command:
             # Non-slash input = query across all transcripts
-            await self._run_query_all(command)
+            handled = await self._handle_mention_query(command)
+            if not handled:
+                await self._run_query_all(command)
 
 
 def main() -> None:
