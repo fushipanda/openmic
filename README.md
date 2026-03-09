@@ -7,7 +7,7 @@
 
 > A beautiful CLI/TUI for meeting transcription with live preview, speaker diarization, and RAG-powered querying.
 
-[About](#about-this-project) • [Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development)
+[Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development)
 
 ---
 
@@ -381,9 +381,11 @@ For detailed technical documentation, see the full data flow and architecture di
 
 ## How This Was Built
 
-I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) over an evening — giving it requirements, reviewing what it produced, then feeding back corrections and new ideas. The whole thing, from an empty directory to the current state (architecture, 163 tests, 50+ commits, this README), came out of that process. It's still a work in progress, but genuinely useful for what it does.
+I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) — giving it a feature list and bugs to fix in [CLAUDE.md](./CLAUDE.md), then iterating: Claude would implement a todo, I'd review it, and once tested it got pushed. The whole thing, from an empty directory to the current state (architecture, 163 tests, 50+ commits, this README), came out of that process. It's still a work in progress, but genuinely useful for what it does.
 
-The workflow is called Ralph Loop — Claude Code's agentic mode where it iterates continuously based on your feedback. If you're curious about the full history, [CLAUDE.md](./CLAUDE.md) has the complete TODO list and every decision made along the way.
+The workflow is called Ralph Loop — Claude Code's agentic mode where it works through tasks continuously based on your feedback. If you're curious about the full history, [CLAUDE.md](./CLAUDE.md) has the complete TODO list and every decision made along the way.
+
+I use this daily for recording meetings — I've found myself enjoying a terminal-based workflow and wanted a transcription tool built on architecture I'm familiar with. Inspired in part by TUIs I've worked with recently, primarily [OpenCode](https://github.com/anomalyco/opencode/).
 
 ---
 
@@ -408,4 +410,3 @@ MIT License - See [LICENSE](./LICENSE) file for details.
 - **See the development process**: [CLAUDE.md](./CLAUDE.md) - Complete TODO history and architecture decisions
 - **Read the code**: All modules are documented with clear data flow and extension points
 - **Run the tests**: 163 automated tests demonstrate usage patterns
-
