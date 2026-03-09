@@ -352,28 +352,63 @@ class TranscriptPane(VerticalScroll):
         self._content.update(banner)
 
     def _render_welcome(self) -> None:
-        """Render the query-first welcome screen."""
+        """Render the home screen: ASCII banner + transcript status + command menu."""
         theme = self.app.current_theme
         primary = theme.primary or "#00d4aa"
+        shadow = self._dim_color(primary)
         muted = _muted_color(theme)
+        fg = theme.foreground or "#e8e8e8"
 
+        # --- ASCII banner art ---
+        lines = BANNER.split("\n")
+        num_lines = len(lines)
+        max_width = max(len(l) for l in lines)
+        rows = num_lines + 1
+        cols = max_width + 1
+        welcome = Text()
+        for r in range(rows):
+            for c in range(cols):
+                main_ch = " "
+                if r < num_lines and (c - 1) >= 0 and (c - 1) < len(lines[r]):
+                    main_ch = lines[r][c - 1]
+                shadow_ch = " "
+                if (r - 1) >= 0 and (r - 1) < num_lines and c < len(lines[r - 1]):
+                    shadow_ch = lines[r - 1][c]
+                if main_ch != " ":
+                    welcome.append(main_ch, style=f"bold {primary}")
+                elif shadow_ch != " ":
+                    welcome.append(shadow_ch, style=shadow)
+                else:
+                    welcome.append(" ")
+            welcome.append("\n")
+        welcome.append("voice → text → insight", style=f"italic {muted}")
+        welcome.append("\n\n")
+
+        # --- Transcript status ---
         transcripts = list_transcripts()
         count = len(transcripts)
-
-        welcome = Text()
-        welcome.append("OpenMic", style=f"bold {primary}")
-        welcome.append("\n\n")
         if count > 0:
-            welcome.append(f"{count} transcript{'s' if count != 1 else ''} available", style=muted)
-            welcome.append(" — ask anything\n\n", style=muted)
-            welcome.append("Type a question and press Enter to search across all transcripts.\n", style=f"italic {muted}")
-            welcome.append("Use / for commands: ", style=f"italic {muted}")
-            welcome.append("/start  /history  /notes", style=f"italic {primary}")
+            welcome.append(f"  {count} transcript{'s' if count != 1 else ''} available", style=muted)
+            welcome.append(" — type a question to search, or use a command below\n\n", style=muted)
         else:
-            welcome.append("No transcripts yet", style=muted)
+            welcome.append("  No transcripts yet", style=muted)
             welcome.append(" — use ", style=muted)
             welcome.append("/start", style=f"bold {primary}")
-            welcome.append(" to record your first meeting\n", style=muted)
+            welcome.append(" to record your first meeting\n\n", style=muted)
+
+        # --- Command menu ---
+        menu = [
+            ("/start",   "Start recording a new meeting"),
+            ("/history", "Browse and view past transcripts"),
+            ("/notes",   "Generate structured meeting notes"),
+            ("/model",   "Change LLM provider or model"),
+            ("/help",    "Show all commands and shortcuts"),
+        ]
+        for cmd, desc in menu:
+            welcome.append(f"  {cmd}", style=f"bold {primary}")
+            pad = max(1, 12 - len(cmd))
+            welcome.append(" " * pad)
+            welcome.append(f"{desc}\n", style=muted)
 
         self._content.update(welcome)
 
@@ -1127,6 +1162,7 @@ class OpenMicApp(App):
         self.audio_recorder = AudioRecorder(
             output_dir=RECORDINGS_DIR,
             on_audio_chunk=self._on_audio_chunk,
+            on_limit_reached=self._on_recording_limit_reached,
         )
         self.transcriber = RealtimeTranscriber(
             on_partial=self._on_partial_transcript,
@@ -1165,10 +1201,8 @@ class OpenMicApp(App):
         config["theme"] = self.theme
         _save_config(config)
         # Re-render theme-aware widgets
-        if self.transcript_pane._show_welcome:
+        if self.transcript_pane._show_welcome or self.transcript_pane._show_banner:
             self.transcript_pane._render_welcome()
-        elif self.transcript_pane._show_banner:
-            self.transcript_pane._render_banner()
         self.status_bar._update_display()
 
     def action_show_help(self) -> None:
@@ -1265,6 +1299,17 @@ class OpenMicApp(App):
         self.usage_tracker.add_audio_bytes(len(audio_bytes))
         self.transcriber.send_audio_chunk(audio_bytes)
         self.status_bar.refresh_usage()
+
+    def _on_recording_limit_reached(self) -> None:
+        """Called from audio thread when 6-hour cap is hit — auto-stop recording."""
+        self.call_from_thread(self._auto_stop_at_limit)
+
+    def _auto_stop_at_limit(self) -> None:
+        """Stop recording and notify user that the 6-hour limit was reached."""
+        self.transcript_pane.append_text(
+            "\n⚠ 6-hour recording limit reached — stopping automatically.\n"
+        )
+        self.call_later(self._stop_recording)
 
     def _on_partial_transcript(self, text: str) -> None:
         """Handle partial transcript update."""

@@ -27,14 +27,17 @@ class AudioRecorder:
     SAMPLE_RATE = 16000  # 16kHz for speech recognition
     CHANNELS = 1
     DTYPE = np.int16
+    MAX_DURATION_SECONDS = 6 * 3600  # 6-hour hard cap
 
     def __init__(
         self,
         output_dir: Path | None = None,
         on_audio_chunk: Callable[[bytes], None] | None = None,
+        on_limit_reached: Callable[[], None] | None = None,
     ) -> None:
         self.output_dir = output_dir or Path(".")
         self.on_audio_chunk = on_audio_chunk
+        self.on_limit_reached = on_limit_reached
         self._recording = False
         self._paused = False
         self._frames: list[np.ndarray] = []
@@ -42,6 +45,8 @@ class AudioRecorder:
         self._lock = threading.Lock()
         self._current_file: Path | None = None
         self._device = _find_input_device()
+        self._samples_recorded: int = 0  # active (non-paused) samples captured
+        self._limit_triggered = False
 
     @property
     def is_recording(self) -> bool:
@@ -69,9 +74,20 @@ class AudioRecorder:
         with self._lock:
             if self._recording:
                 self._frames.append(indata.copy())
+                self._samples_recorded += len(indata)
 
         if self.on_audio_chunk is not None:
             self.on_audio_chunk(indata.tobytes())
+
+        # Hard cap: stop after MAX_DURATION_SECONDS of active recording
+        if (
+            self._recording
+            and not self._limit_triggered
+            and self._samples_recorded >= self.MAX_DURATION_SECONDS * self.SAMPLE_RATE
+        ):
+            self._limit_triggered = True
+            if self.on_limit_reached is not None:
+                self.on_limit_reached()
 
     def start(self, filename: str | None = None) -> Path:
         """Start recording audio to a WAV file.
@@ -92,6 +108,8 @@ class AudioRecorder:
         self._current_file = self.output_dir / filename
         self._frames = []
         self._recording = True
+        self._samples_recorded = 0
+        self._limit_triggered = False
 
         self._stream = sd.InputStream(
             device=self._device,
