@@ -226,8 +226,59 @@ class TestSlashCommands:
     def test_core_commands_present(self):
         """Core commands should be in the list."""
         cmds = [cmd for cmd, _ in SLASH_COMMANDS]
-        for expected in ["/start", "/stop", "/exit", "/history", "/notes", "/query", "/pause"]:
+        for expected in ["/start", "/stop", "/exit", "/history", "/notes", "/query", "/pause", "/regen"]:
             assert expected in cmds, f"{expected} missing from SLASH_COMMANDS"
+
+
+class TestRegenNotes:
+    """Regenerating notes should reuse the saved template when possible."""
+
+    @pytest.mark.asyncio
+    async def test_regen_uses_existing_template(self, monkeypatch, tmp_path):
+        app = OpenMicApp()
+        transcript_path = tmp_path / "2026-03-31_10-47_test.md"
+        transcript_path.write_text("transcript")
+
+        monkeypatch.setattr(
+            "openmic.app.get_existing_notes",
+            lambda path: ("cached", tmp_path / "note.md", "gds"),
+        )
+
+        called = {}
+
+        async def fake_generate(transcript, template_id="default", force_regenerate=False):
+            called["transcript"] = transcript
+            called["template_id"] = template_id
+            called["force_regenerate"] = force_regenerate
+
+        monkeypatch.setattr(app, "_generate_notes_for_path", fake_generate)
+
+        await app._regenerate_notes_for_path(transcript_path)
+
+        assert called == {
+            "transcript": transcript_path,
+            "template_id": "gds",
+            "force_regenerate": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_regen_falls_back_to_picker_when_no_notes_exist(self, monkeypatch, tmp_path):
+        app = OpenMicApp()
+        transcript_path = tmp_path / "2026-03-31_10-47_test.md"
+        transcript_path.write_text("transcript")
+
+        monkeypatch.setattr("openmic.app.get_existing_notes", lambda path: None)
+
+        called = {}
+
+        def fake_show_picker(path):
+            called["transcript"] = path
+
+        monkeypatch.setattr(app, "_show_template_picker", fake_show_picker)
+
+        await app._regenerate_notes_for_path(transcript_path)
+
+        assert called == {"transcript": transcript_path}
 
 
 class TestAutocompleteDropdown:

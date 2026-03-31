@@ -424,6 +424,7 @@ class TranscriptPane(VerticalScroll):
             ("/start",   "Start recording a new meeting"),
             ("/history", "Browse and view past transcripts"),
             ("/notes",   "Generate structured meeting notes"),
+            ("/regen",   "Regenerate notes for a transcript"),
             ("/model",   "Change LLM provider or model"),
             ("/help",    "Show all commands and shortcuts"),
         ]
@@ -521,6 +522,7 @@ SLASH_COMMANDS = [
     ("/notes", "Generate structured meeting notes"),
     ("/pause", "Pause recording (resume with /start)"),
     ("/query", "Ask a question across all transcripts"),
+    ("/regen", "Regenerate notes for a transcript"),
     ("/start", "Start recording"),
     ("/stop", "Stop recording and run batch transcription"),
     ("/transcript", "View transcript by number or name"),
@@ -536,6 +538,7 @@ HELP_COMMANDS = [
     ("/transcript <n>", "View transcript by number or name"),
     ("/query <question>", "Ask a question across all transcripts"),
     ("/notes", "Generate notes (with template selection)"),
+    ("/regen", "Regenerate notes using the saved template"),
     ("/model", "Select LLM provider and model"),
     ("/name <name>", "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
@@ -1637,6 +1640,36 @@ class OpenMicApp(App):
 
         self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
 
+    async def _regenerate_notes(self) -> None:
+        """Regenerate meeting notes for a transcript using its saved template when available."""
+        transcripts = list_transcripts()
+        if not transcripts:
+            self.transcript_pane.set_text("No transcripts available to regenerate notes for.\n")
+            return
+        if len(transcripts) == 1:
+            await self._regenerate_notes_for_path(transcripts[0])
+            return
+
+        def on_selected(path: Path | None) -> None:
+            if path is not None:
+                self.call_later(self._regenerate_notes_for_path, path)
+
+        self.push_screen(TranscriptPickerScreen(transcripts), on_selected)
+
+    async def _regenerate_notes_for_path(self, transcript_path: Path) -> None:
+        """Regenerate notes for a transcript, reusing the saved template when possible."""
+        existing = get_existing_notes(transcript_path)
+        if existing is None:
+            self._show_template_picker(transcript_path)
+            return
+
+        _, _, template_id = existing
+        await self._generate_notes_for_path(
+            transcript_path,
+            template_id or "default",
+            True,
+        )
+
     def _show_template_picker(self, transcript_path: Path) -> None:
         """Show template picker — or skip it if notes already exist."""
         existing = get_existing_notes(transcript_path)
@@ -2004,6 +2037,8 @@ class OpenMicApp(App):
                 self.transcript_pane.append_text("\nUsage: /query <your question>\n")
         elif command == "/notes":
             await self._generate_notes()
+        elif command == "/regen":
+            await self._regenerate_notes()
         elif command.startswith("/name "):
             new_name = command[6:].strip()
             if not new_name:
