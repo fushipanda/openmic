@@ -219,9 +219,9 @@ class ReplContext:
 def print_banner() -> None:
     """Print ASCII banner and tagline."""
     from openmic.version import get_version
-    console.print(f"[bold cyan]{BANNER}[/]")
+    console.print(f"[bold #00d4aa]{BANNER}[/]")
     console.print()
-    console.print(f"[dim]voice → text → insight[/]  [dim]v{get_version()}[/]")
+    console.print(f"[dim italic]voice → text → insight[/]  [dim]v{get_version()}[/]")
     console.print()
 
 
@@ -230,7 +230,7 @@ def print_help() -> None:
     t = Table(show_header=False, box=None, padding=(0, 1))
     for cmd, desc in HELP_COMMANDS:
         if cmd:
-            t.add_row(f"[bold cyan]{cmd}[/]", f"[dim]{desc}[/]")
+            t.add_row(f"[bold #00d4aa]{cmd}[/]", f"[dim]{desc}[/]")
         else:
             t.add_row("", "")
     t.add_row("", "")
@@ -280,7 +280,7 @@ def pick_transcript(transcripts: list[Path]) -> Path | None:
                 t.add_row("", f"[bold]{header}[/]", "")
                 last_header = header
             has_notes = (NOTES_DIR / (meta["stem"] + "_notes.md")).exists()
-            star = "" if has_notes else "[bold cyan]*[/]"
+            star = "" if has_notes else "[bold #00d4aa]*[/]"
             title = format_transcript_title(path.stem[:16], meta["name"])
             time_str = dt.strftime("%-I:%M %p")
             t.add_row(f"[dim]{i}[/]", f"{star} {title}", f"[dim]{time_str}[/]")
@@ -318,7 +318,7 @@ def pick_model() -> tuple[str, str] | None:
                 last_provider = pkey
             n = len(items) + 1
             is_current = pkey == current_provider and model_id == current_model
-            marker = "[bold cyan]✓[/] " if is_current else "  "
+            marker = "[bold #00d4aa]✓[/] " if is_current else "  "
             t.add_row(f"[dim]{n}[/]", f"{marker}[bold]{model_id}[/]", f"[dim]{desc}[/]")
             items.append((pkey, model_id, info["label"], desc))
 
@@ -431,7 +431,7 @@ async def _run_query_on_path(question: str, path: Path, ctx: ReplContext) -> Non
         answer = await loop.run_in_executor(None, lambda: ctx.rag.query_file(question, path))
         ctx.usage.add_llm_call()
         console.print()
-        console.print(f"[bold cyan]  >[/] {question}")
+        console.print(f"[bold #00d4aa]  >[/] {question}")
         console.print()
         console.print(RichMarkdown(answer))
     except Exception as e:
@@ -458,7 +458,7 @@ async def _run_query_all(question: str, ctx: ReplContext) -> None:
         sources = result.get("sources", [])
 
         console.print()
-        console.print(f"[bold cyan]  >[/] {question}")
+        console.print(f"[bold #00d4aa]  >[/] {question}")
         console.print()
         console.print(RichMarkdown(answer))
         if sources:
@@ -595,7 +595,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
 
     session_info = f" [{session_name}]" if session_name else ""
     console.print()
-    console.print(f"[bold red]◉ RECORDING{session_info}[/]  [dim]Ctrl+C to stop[/]")
+    console.print(f"[bold #ff4757]◉ RECORDING{session_info}[/]  [dim]Ctrl+C to stop[/]")
     console.print()
 
     try:
@@ -629,7 +629,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         for seg in segments:
             speaker = seg.get("speaker", "Speaker")
             text = seg.get("text", "")
-            console.print(f"[bold cyan][{speaker}][/] {text}")
+            console.print(f"[bold #00d4aa][{speaker}][/] {text}")
 
         console.print()
         console.print(f"[dim]Saved to: {transcript_path.name}[/]")
@@ -830,7 +830,7 @@ async def repl_loop(ctx: ReplContext) -> None:
     model_label = UsageTracker.current_model_label()
     prompt_suffix = f"[dim]({model_label})[/] " if model_label else ""
 
-    console.print(f"\n[bold cyan]openmic[/] {prompt_suffix}[dim]— type /help for commands[/]\n")
+    console.print(f"\n[bold #00d4aa]openmic[/] {prompt_suffix}[dim italic]— type /help for commands[/]\n")
 
     while True:
         try:
