@@ -1,5 +1,8 @@
 """OpenMic — lightweight CLI for meeting transcription and RAG querying."""
 
+import warnings
+warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
+
 import asyncio
 import json
 import os
