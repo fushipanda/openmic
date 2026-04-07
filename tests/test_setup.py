@@ -115,27 +115,28 @@ class TestMainRouting:
 
     @patch("openmic.app._load_config")
     def test_setup_complete_skips_wizard(self, mock_config):
-        """setup_complete: true should skip wizard."""
+        """setup_complete: true should skip wizard and launch the app."""
         mock_config.return_value = {"setup_complete": True}
         with patch.object(sys, "argv", ["openmic"]):
-            with patch("openmic.app.OpenMicApp") as mock_app_cls:
-                mock_app = MagicMock()
-                mock_app_cls.return_value = mock_app
+            with patch("openmic.app.asyncio.run") as mock_run, \
+                 patch("openmic.app.print_banner"), \
+                 patch("openmic.app._check_for_updates_sync"), \
+                 patch("openmic.app.TranscriptRAG"):
                 from openmic.app import main
                 main()
-                mock_app.run.assert_called_once()
+                mock_run.assert_called_once()
 
     @patch("openmic.app._load_config")
     def test_cancelled_wizard_exits(self, mock_config):
-        """If wizard doesn't set setup_complete, main should return."""
+        """If wizard doesn't set setup_complete, main should return without launching."""
         mock_config.return_value = {}
         with patch.object(sys, "argv", ["openmic"]):
-            with patch("openmic.setup.run_setup"):
-                with patch("openmic.app.OpenMicApp") as mock_app_cls:
-                    from openmic.app import main
-                    main()
-                    # App should NOT be created since setup wasn't completed
-                    mock_app_cls.assert_not_called()
+            with patch("openmic.setup.run_setup"), \
+                 patch("openmic.app.asyncio.run") as mock_run:
+                from openmic.app import main
+                main()
+                # asyncio.run should NOT be called since setup wasn't completed
+                mock_run.assert_not_called()
 
 
 class TestKeysSkippedWhenPresent:

@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "CLI/TUI meeting transcription tool with live preview, diarization, and RAG querying"
 requires-python = ">=3.12"
 dependencies = [
-    "textual>=0.47.0",
     "sounddevice>=0.4.6",
     "scipy>=1.11.0",
     "elevenlabs>=1.0.0",
