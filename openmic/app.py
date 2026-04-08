@@ -1287,7 +1287,11 @@ async def repl_loop(ctx: ReplContext) -> None:
 
     @kb.add("s-tab")
     def _shift_tab(event):
-        _cycle(-1)
+        if _has_completions():
+            _cycle(-1)
+        else:
+            # Quick-start recording shortcut
+            event.app.exit(result="/start")
 
     # Arrow keys navigate completions when visible; fall through to emacs
     # history bindings (via load_emacs_bindings) when no completions shown.
