@@ -598,18 +598,51 @@ async def _handle_mention_query(text: str, ctx: ReplContext) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Spinner
+# ---------------------------------------------------------------------------
+
+_SPINNER_FRAMES = "⣾⣽⣻⢿⡿⣟⣯⣷"
+
+
+async def _spinner_task(label: str, done: asyncio.Event) -> None:
+    """Braille spinner that runs until done is set."""
+    t0 = asyncio.get_event_loop().time()
+    i  = 0
+    while not done.is_set():
+        elapsed = asyncio.get_event_loop().time() - t0
+        secs    = f"{elapsed:.0f}s"
+        frame   = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
+        sys.stdout.write(f"\r\033[2m{frame}  {label}  {secs}\033[0m   ")
+        sys.stdout.flush()
+        await asyncio.sleep(0.1)
+        i += 1
+    sys.stdout.write("\r\033[K")   # clear spinner line
+    sys.stdout.flush()
+
+
+async def _with_spinner(label: str, fn):
+    """Run fn() in a thread executor while showing a braille spinner."""
+    done = asyncio.Event()
+    spin = asyncio.create_task(_spinner_task(label, done))
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, fn)
+    finally:
+        done.set()
+        await spin
+
+
+# ---------------------------------------------------------------------------
 # Query
 # ---------------------------------------------------------------------------
 
 async def _run_query_on_path(question: str, path: Path, ctx: ReplContext) -> None:
     """Run RAG query against a specific transcript."""
-    console.print(f"[dim]Searching {path.stem}...[/]")
     try:
-        loop = asyncio.get_event_loop()
-        answer = await loop.run_in_executor(None, lambda: ctx.rag.query_file(question, path))
+        answer = await _with_spinner(f"Searching {path.stem}", lambda: ctx.rag.query_file(question, path))
         ctx.usage.add_llm_call()
         console.print()
-        console.print(f"[bold #00d4aa]  >[/] {question}")
+        console.print(f"[bold {TEAL}]  >[/] {question}")
         console.print()
         console.print(RichMarkdown(answer))
     except Exception as e:
@@ -627,16 +660,16 @@ async def _run_query_all(question: str, ctx: ReplContext) -> None:
         ctx.chatting = True
         ctx.rag.clear_chat_history()
 
-    console.print(f"[dim]Searching across {len(transcripts)} transcript{'s' if len(transcripts) != 1 else ''}...[/]")
+    n     = len(transcripts)
+    label = f"Searching {n} transcript{'s' if n != 1 else ''}"
     try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, lambda: ctx.rag.query(question))
+        result = await _with_spinner(label, lambda: ctx.rag.query(question))
         ctx.usage.add_llm_call()
-        answer = result["answer"]
+        answer  = result["answer"]
         sources = result.get("sources", [])
 
         console.print()
-        console.print(f"[bold #00d4aa]  >[/] {question}")
+        console.print(f"[bold {TEAL}]  >[/] {question}")
         console.print()
         console.print(RichMarkdown(answer))
         if sources:
@@ -662,14 +695,9 @@ async def _generate_notes_for_path(
     existing = get_existing_notes(path)
     will_use_cache = existing is not None and existing[2] == template_id
 
-    if will_use_cache:
-        console.print("[dim]Loading saved notes...[/]")
-    else:
-        console.print(f"[dim]Generating notes ({template_id})...[/]")
-
+    label = "Loading saved notes" if will_use_cache else f"Generating notes ({template_id})"
     try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, lambda: generate_meeting_notes(path, template_id))
+        result = await _with_spinner(label, lambda: generate_meeting_notes(path, template_id))
         notes_content, notes_path, used_cache = result
         if not used_cache and ctx:
             ctx.usage.add_llm_call()
@@ -1031,8 +1059,8 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
 TEAL        = "#00d4aa"   # primary accent (from banner)
 TEAL_DIM    = "#007a63"   # muted teal for separators
 GHOST_TEXT  = "#6c7a8a"   # inline auto-suggestion (light enough to read on dark bg)
-META_DIM    = "#3d4a5c"   # description text (unselected)
-META_BRIGHT = "#8899aa"   # description text (selected)
+META_DIM    = "#7a8899"   # description text (unselected) — readable on dark bg
+META_BRIGHT = "#c0ccd8"   # description text (selected)
 
 OPENMIC_STYLE = {
     # Separator lines and prompt character
@@ -1042,14 +1070,14 @@ OPENMIC_STYLE = {
     # Ghost-text auto-suggestion (appears inline after cursor)
     "auto-suggestion": GHOST_TEXT,
 
-    # Completion popup — no background, uses terminal bg
-    "completion-menu":                           "",
-    "completion-menu.completion":                f"fg:{META_DIM}",
-    "completion-menu.completion.current":        f"fg:{TEAL} bold",
-    "completion-menu.meta.completion":           f"fg:{META_DIM}",
-    "completion-menu.meta.completion.current":   f"fg:{META_BRIGHT}",
-    "scrollbar.background":                      "",
-    "scrollbar.button":                          f"fg:{TEAL_DIM}",
+    # Completion popup — no background, no border, uses terminal bg
+    "completion-menu":                           "noinherit",
+    "completion-menu.completion":                f"fg:{META_DIM} noinherit",
+    "completion-menu.completion.current":        f"fg:{TEAL} bold noinherit",
+    "completion-menu.meta.completion":           f"fg:{META_DIM} noinherit",
+    "completion-menu.meta.completion.current":   f"fg:{META_BRIGHT} noinherit",
+    "scrollbar.background":                      "noinherit",
+    "scrollbar.button":                          f"fg:{TEAL_DIM} noinherit",
 }
 
 
@@ -1073,7 +1101,7 @@ class _CommandAutoSuggest:
 
 
 class _CommandCompleter:
-    """Full popup completer — Tab to trigger, shows all matches + descriptions."""
+    """Full popup completer — shows matching commands with descriptions."""
 
     def get_completions(self, document, complete_event):
         from prompt_toolkit.completion import Completion
@@ -1082,7 +1110,13 @@ class _CommandCompleter:
         if text.startswith("/"):
             for cmd, desc in HELP_COMMANDS:
                 if cmd and cmd.lower().startswith(text.lower()):
-                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
+                    # start_position=-len(text) anchors the popup to the
+                    # left edge of the input text, not the cursor position.
+                    yield Completion(
+                        cmd,
+                        start_position=-len(text),
+                        display_meta=desc,
+                    )
             return
 
         at_idx = text.rfind("@")
