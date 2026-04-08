@@ -480,3 +480,105 @@ class TestMainRouting:
             main()
         out = capsys.readouterr().out
         assert "2.0.0" in out
+
+    def test_help_flag(self, capsys):
+        with patch("sys.argv", ["openmic", "--help"]):
+            from openmic.app import main
+            main()
+        out = capsys.readouterr().out
+        assert "record" in out
+        assert "query" in out
+
+    def test_bare_string_routes_to_oneshot_query(self):
+        with patch("sys.argv", ["openmic", "what was discussed"]), \
+             patch("openmic.app._run_oneshot_query") as mock_q:
+            from openmic.app import main
+            main()
+        mock_q.assert_called_once_with("what was discussed")
+
+    def test_multi_word_bare_string_joins_args(self):
+        with patch("sys.argv", ["openmic", "who", "attended"]), \
+             patch("openmic.app._run_oneshot_query") as mock_q:
+            from openmic.app import main
+            main()
+        mock_q.assert_called_once_with("who attended")
+
+    def test_query_subcommand(self):
+        with patch("sys.argv", ["openmic", "query", "test question"]), \
+             patch("openmic.app._run_oneshot_query") as mock_q:
+            from openmic.app import main
+            main()
+        mock_q.assert_called_once_with("test question")
+
+    def test_query_flag(self):
+        with patch("sys.argv", ["openmic", "--query", "test"]), \
+             patch("openmic.app._run_oneshot_query") as mock_q:
+            from openmic.app import main
+            main()
+        mock_q.assert_called_once_with("test")
+
+    def test_notes_subcommand(self):
+        with patch("sys.argv", ["openmic", "notes"]), \
+             patch("openmic.app._run_oneshot_notes") as mock_n:
+            from openmic.app import main
+            main()
+        mock_n.assert_called_once()
+
+    def test_list_subcommand(self):
+        with patch("sys.argv", ["openmic", "list"]), \
+             patch("openmic.app._run_list_transcripts") as mock_l:
+            from openmic.app import main
+            main()
+        mock_l.assert_called_once()
+
+    def test_model_subcommand(self):
+        with patch("sys.argv", ["openmic", "model"]), \
+             patch("openmic.app._run_set_model") as mock_m:
+            from openmic.app import main
+            main()
+        mock_m.assert_called_once_with([])
+
+    def test_model_with_args(self):
+        with patch("sys.argv", ["openmic", "model", "anthropic", "claude-sonnet-4-6"]), \
+             patch("openmic.app._run_set_model") as mock_m:
+            from openmic.app import main
+            main()
+        mock_m.assert_called_once_with(["anthropic", "claude-sonnet-4-6"])
+
+    def test_record_subcommand(self):
+        with patch("sys.argv", ["openmic", "record"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with(record=True, session_name=None)
+
+    def test_record_with_session_name(self):
+        with patch("sys.argv", ["openmic", "record", "standup"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with(record=True, session_name="standup")
+
+    def test_set_model_direct_valid(self, monkeypatch, tmp_path):
+        config_file = tmp_path / "settings.json"
+        with patch("openmic.app.CONFIG_FILE", config_file), \
+             patch("openmic.app.CONFIG_DIR", tmp_path), \
+             patch("openmic.app._bootstrap", return_value={}):
+            from openmic.app import _run_set_model
+            _run_set_model(["anthropic", "claude-sonnet-4-6"])
+        assert os.environ.get("LLM_PROVIDER") == "anthropic"
+        assert os.environ.get("LLM_MODEL") == "claude-sonnet-4-6"
+
+    def test_set_model_unknown_provider(self, capsys):
+        with patch("openmic.app._bootstrap", return_value={}):
+            from openmic.app import _run_set_model
+            _run_set_model(["notaprovider", "somemodel"])
+        out = capsys.readouterr().out
+        assert "Unknown provider" in out
+
+    def test_set_model_unknown_model(self, capsys):
+        with patch("openmic.app._bootstrap", return_value={}):
+            from openmic.app import _run_set_model
+            _run_set_model(["anthropic", "not-a-real-model"])
+        out = capsys.readouterr().out
+        assert "Unknown model" in out

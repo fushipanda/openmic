@@ -118,6 +118,7 @@ from openmic.audio import AudioRecorder
 from openmic.storage import (
     save_transcript,
     list_transcripts,
+    get_latest_transcript,
     rename_transcript,
     format_transcript_title,
     TRANSCRIPTS_DIR,
@@ -852,45 +853,118 @@ async def repl_loop(ctx: ReplContext) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+_KNOWN_SUBCOMMANDS = {"record", "query", "notes", "list", "model", "update", "setup"}
+
+_HELP_TEXT = """\
+Usage: openmic [command] [args]
+
+Commands:
+  openmic                        Interactive REPL
+  openmic record [name]          Record a meeting, then enter REPL
+  openmic "query text"           Run a one-shot query and exit
+  openmic query "query text"     Same (explicit form)
+  openmic notes                  Show or generate notes for latest transcript
+  openmic list                   List saved transcripts
+  openmic model                  Interactive model picker
+  openmic model <provider> <id>  Set model directly (e.g. anthropic claude-sonnet-4-6)
+  openmic update                 Self-update
+  openmic setup                  Re-run setup wizard
+  openmic --version              Show version
+"""
+
+
 def main() -> None:
     """Entry point for the OpenMic application."""
     import sys
 
-    record_mode = False
-    session_name = None
+    argv = sys.argv[1:]
 
-    if len(sys.argv) > 1:
-        if sys.argv[1] in ("--version", "-V"):
-            from openmic.version import get_version
-            print(f"openmic {get_version()}")
-            return
-        if sys.argv[1] == "update":
-            from openmic.version import run_update
-            run_update()
-            return
-        if sys.argv[1] == "setup":
-            from openmic.setup import run_setup
-            run_setup()
-            return
-        if sys.argv[1] in ("record", "--record", "-r"):
-            record_mode = True
-            # Optional session name: openmic record my-meeting
-            if len(sys.argv) > 2:
-                session_name = "_".join(sys.argv[2:])
+    # ── Fast-path: no config needed ─────────────────────────────────────────
+    if not argv:
+        _run_interactive()
+        return
 
+    first, rest = argv[0], argv[1:]
+
+    if first in ("--version", "-V"):
+        from openmic.version import get_version
+        print(f"openmic {get_version()}")
+        return
+
+    if first in ("--help", "-h"):
+        print(_HELP_TEXT)
+        return
+
+    if first == "update":
+        from openmic.version import run_update
+        run_update()
+        return
+
+    if first == "setup":
+        from openmic.setup import run_setup
+        run_setup()
+        return
+
+    # ── Bare string = one-shot query ─────────────────────────────────────────
+    if not first.startswith("-") and first not in _KNOWN_SUBCOMMANDS:
+        _run_oneshot_query(" ".join(argv))
+        return
+
+    # ── Subcommands ──────────────────────────────────────────────────────────
+    if first in ("record", "--record", "-r"):
+        session_name = "_".join(rest) if rest else None
+        _run_interactive(record=True, session_name=session_name)
+        return
+
+    if first in ("query", "--query", "-q"):
+        query_text = " ".join(rest)
+        if query_text:
+            _run_oneshot_query(query_text)
+        else:
+            _run_interactive()
+        return
+
+    if first == "notes":
+        _run_oneshot_notes()
+        return
+
+    if first == "list":
+        _run_list_transcripts()
+        return
+
+    if first == "model":
+        _run_set_model(rest)
+        return
+
+    console.print(f"[dim]Unknown command: {first}[/]\n")
+    print(_HELP_TEXT)
+
+
+# ---------------------------------------------------------------------------
+# Startup helpers
+# ---------------------------------------------------------------------------
+
+def _bootstrap() -> dict | None:
+    """Load config, run setup if needed, restore LLM env. Returns config or None."""
     config = _load_config()
     if not config.get("setup_complete"):
         from openmic.setup import run_setup
         run_setup()
         config = _load_config()
         if not config.get("setup_complete"):
-            return
-
-    # Restore persisted LLM settings
+            return None
     if config.get("llm_provider"):
         os.environ.setdefault("LLM_PROVIDER", config["llm_provider"])
     if config.get("llm_model"):
         os.environ.setdefault("LLM_MODEL", config["llm_model"])
+    return config
+
+
+def _run_interactive(record: bool = False, session_name: str | None = None) -> None:
+    """Start interactive session (optional recording first)."""
+    config = _bootstrap()
+    if config is None:
+        return
 
     print_banner()
     _check_for_updates_sync(config)
@@ -899,7 +973,7 @@ def main() -> None:
     ctx = ReplContext(rag=rag)
 
     async def _run():
-        if record_mode:
+        if record:
             path = await recording_mode(session_name=session_name, ctx=ctx)
             if path:
                 ctx.latest_transcript_path = path
@@ -909,6 +983,153 @@ def main() -> None:
         asyncio.run(_run())
     except KeyboardInterrupt:
         pass
+
+
+def _run_oneshot_query(query_text: str) -> None:
+    """Run a single RAG query, print the answer, and exit."""
+    config = _bootstrap()
+    if config is None:
+        return
+
+    transcripts = list_transcripts()
+    if not transcripts:
+        console.print("[dim]No transcripts available. Use 'openmic record' to record a meeting.[/]")
+        return
+
+    rag = TranscriptRAG()
+    ctx = ReplContext(rag=rag)
+
+    async def _run():
+        await _run_query_all(query_text, ctx)
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
+def _run_oneshot_notes() -> None:
+    """Generate (or show cached) notes for the latest transcript and exit."""
+    config = _bootstrap()
+    if config is None:
+        return
+
+    transcript_path = get_latest_transcript()
+    if transcript_path is None:
+        console.print("[dim]No transcripts available.[/]")
+        return
+
+    rag = TranscriptRAG()
+    ctx = ReplContext(rag=rag)
+
+    async def _run():
+        await _generate_notes_for_path(transcript_path, ctx=ctx)
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
+def _run_list_transcripts() -> None:
+    """Print the transcript list and exit."""
+    config = _bootstrap()
+    if config is None:
+        return
+
+    transcripts = list_transcripts()
+    if not transcripts:
+        console.print("[dim]No transcripts found.[/]")
+        return
+
+    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
+    last_header = None
+    for i, path in enumerate(transcripts, 1):
+        meta = _parse_transcript_meta(path)
+        dt = meta["datetime"]
+        if dt:
+            header = _date_header(dt)
+            if header != last_header:
+                t.add_row("", f"[bold]{header}[/]", "")
+                last_header = header
+            has_notes = (NOTES_DIR / (meta["stem"] + "_notes.md")).exists()
+            star = "" if has_notes else "[bold #00d4aa]*[/]"
+            title = format_transcript_title(path.stem[:16], meta["name"])
+            time_str = dt.strftime("%-I:%M %p")
+            t.add_row(f"[dim]{i}[/]", f"{star} {title}", f"[dim]{time_str}[/]")
+        else:
+            t.add_row(f"[dim]{i}[/]", path.stem, "")
+    console.print(t)
+    console.print("[dim]  * = notes not yet generated[/]")
+
+
+def _run_set_model(args: list[str]) -> None:
+    """Set model from CLI args or launch interactive picker."""
+    config = _bootstrap()
+    if config is None:
+        return
+
+    if len(args) >= 2:
+        provider, model_id = args[0], args[1]
+        if provider not in MODEL_REGISTRY:
+            console.print(f"[dim]Unknown provider: {provider}[/]")
+            console.print(f"[dim]Available: {', '.join(MODEL_REGISTRY)}[/]")
+            return
+        valid_ids = [m for m, _ in MODEL_REGISTRY[provider]["models"]]
+        if model_id not in valid_ids:
+            console.print(f"[dim]Unknown model: {model_id}[/]")
+            console.print(f"[dim]Available for {provider}: {', '.join(valid_ids)}[/]")
+            return
+        os.environ["LLM_PROVIDER"] = provider
+        os.environ["LLM_MODEL"] = model_id
+        cfg = _load_config()
+        cfg["llm_provider"] = provider
+        cfg["llm_model"] = model_id
+        _save_config(cfg)
+        label = MODEL_REGISTRY[provider]["label"]
+        console.print(f"Model set to [bold]{label}[/]: [bold #00d4aa]{model_id}[/]")
+        return
+
+    if len(args) == 1:
+        # Provider only — pick model interactively from that provider
+        provider = args[0]
+        if provider not in MODEL_REGISTRY:
+            console.print(f"[dim]Unknown provider: {provider}[/]")
+            return
+        info = MODEL_REGISTRY[provider]
+        console.print(f"[bold]{info['label']}[/] models:")
+        for i, (mid, desc) in enumerate(info["models"], 1):
+            console.print(f"  {i}. [bold]{mid}[/]  [dim]{desc}[/]")
+        try:
+            choice = input("Pick number (or Enter to cancel): ").strip()
+            if not choice:
+                return
+            idx = int(choice) - 1
+            if 0 <= idx < len(info["models"]):
+                model_id = info["models"][idx][0]
+                os.environ["LLM_PROVIDER"] = provider
+                os.environ["LLM_MODEL"] = model_id
+                cfg = _load_config()
+                cfg["llm_provider"] = provider
+                cfg["llm_model"] = model_id
+                _save_config(cfg)
+                console.print(f"Model set to [bold]{info['label']}[/]: [bold #00d4aa]{model_id}[/]")
+        except (ValueError, KeyboardInterrupt):
+            pass
+        return
+
+    # No args — full interactive picker
+    result = pick_model()
+    if result:
+        provider, model_id = result
+        os.environ["LLM_PROVIDER"] = provider
+        os.environ["LLM_MODEL"] = model_id
+        cfg = _load_config()
+        cfg["llm_provider"] = provider
+        cfg["llm_model"] = model_id
+        _save_config(cfg)
+        label = MODEL_REGISTRY[provider]["label"]
+        console.print(f"Model set to [bold]{label}[/]: [bold #00d4aa]{model_id}[/]")
 
 
 def _check_for_updates_sync(config: dict) -> None:
