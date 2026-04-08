@@ -1236,24 +1236,36 @@ async def repl_loop(ctx: ReplContext) -> None:
     def _accept(event):
         event.app.exit(result=buf.text)
 
-    @kb.add("tab")
-    def _tab(event):
+    def _has_completions() -> bool:
+        return bool(_slash_matches())
+
+    def _cycle(delta: int) -> None:
         matches = _slash_matches()
         if matches:
-            _comp_idx[0] = (_comp_idx[0] + 1) % min(len(matches), 8)
+            _comp_idx[0] = (_comp_idx[0] + delta) % min(len(matches), 8)
             cmd = matches[_comp_idx[0]][0]
             buf.set_document(Document(cmd, len(cmd)))
+
+    @kb.add("tab")
+    def _tab(event):
+        if _has_completions():
+            _cycle(+1)
         else:
-            # @-mention or unknown — fall back to native completion
             buf.start_completion(select_first=False)
 
     @kb.add("s-tab")
     def _shift_tab(event):
-        matches = _slash_matches()
-        if matches:
-            _comp_idx[0] = (_comp_idx[0] - 1) % min(len(matches), 8)
-            cmd = matches[_comp_idx[0]][0]
-            buf.set_document(Document(cmd, len(cmd)))
+        _cycle(-1)
+
+    # Arrow keys navigate completions when visible; fall through to emacs
+    # history bindings (via load_emacs_bindings) when no completions shown.
+    @kb.add("down", filter=Condition(_has_completions))
+    def _down(event):
+        _cycle(+1)
+
+    @kb.add("up", filter=Condition(_has_completions))
+    def _up(event):
+        _cycle(-1)
 
     @kb.add("escape")
     def _escape(event):
