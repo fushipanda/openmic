@@ -601,7 +601,11 @@ async def _handle_mention_query(text: str, ctx: ReplContext) -> bool:
 # Spinner
 # ---------------------------------------------------------------------------
 
-_SPINNER_FRAMES = "⣾⣽⣻⢿⡿⣟⣯⣷"
+_SPINNER_FRAMES = "⣷⣯⣟⡿⢿⣻⣽⣾"   # counter-clockwise
+
+_TEAL_ANSI = "\033[38;2;0;212;170m"
+_DIM_ANSI  = "\033[2m"
+_RST_ANSI  = "\033[0m"
 
 
 async def _spinner_task(label: str, done: asyncio.Event) -> None:
@@ -610,13 +614,24 @@ async def _spinner_task(label: str, done: asyncio.Event) -> None:
     i  = 0
     while not done.is_set():
         elapsed = asyncio.get_event_loop().time() - t0
-        secs    = f"{elapsed:.0f}s"
         frame   = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
-        sys.stdout.write(f"\r\033[2m{frame}  {label}  {secs}\033[0m   ")
+
+        if elapsed < 60:
+            time_str = f"{elapsed:.0f}s"
+        else:
+            m, s = divmod(int(elapsed), 60)
+            time_str = f"{m}m {s:02d}s"
+
+        sys.stdout.write(
+            f"\r{_TEAL_ANSI}{frame}{_RST_ANSI}"
+            f"  {label}"
+            f"  {_DIM_ANSI}{time_str}{_RST_ANSI}"
+            f"   "   # trailing spaces to overwrite any previous longer line
+        )
         sys.stdout.flush()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.08)   # slightly faster = smoother
         i += 1
-    sys.stdout.write("\r\033[K")   # clear spinner line
+    sys.stdout.write("\r\033[K")
     sys.stdout.flush()
 
 
