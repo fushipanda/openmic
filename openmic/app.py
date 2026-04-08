@@ -1182,7 +1182,9 @@ async def repl_loop(ctx: ReplContext) -> None:
     history   = InMemoryHistory()
     _suggest  = _CommandAutoSuggest()
     _completer = _CommandCompleter()
-    _comp_idx = [0]  # current Tab-cycle position
+    _comp_idx    = [0]   # highlighted completion (absolute index)
+    _view_offset = [0]   # first visible row in 6-item viewport
+    COMP_WINDOW  = 6
 
     class _AutoSuggest(AutoSuggest):
         def get_suggestion(self, buffer, document):
@@ -1200,6 +1202,13 @@ async def repl_loop(ctx: ReplContext) -> None:
         name="default",
     )
 
+    def _on_text_changed(_event) -> None:
+        """Reset highlight to top whenever the user edits the input."""
+        _comp_idx[0]    = 0
+        _view_offset[0] = 0
+
+    buf.on_text_changed += _on_text_changed
+
     # ── Completion display above separator ────────────────────────────────────
 
     def _slash_matches() -> list[tuple[str, str]]:
@@ -1215,11 +1224,17 @@ async def repl_loop(ctx: ReplContext) -> None:
         matches = _slash_matches()
         if not matches:
             return []
-        n = min(len(matches), 8)
-        idx = _comp_idx[0] % n
-        lines = []
-        for i, (cmd, desc) in enumerate(matches[:8]):
-            if i == idx:
+        n = len(matches)
+        # Clamp idx/offset in case text change shrank the list
+        if _comp_idx[0] >= n:
+            _comp_idx[0] = 0
+        _view_offset[0] = min(_view_offset[0], max(0, n - COMP_WINDOW))
+        idx     = _comp_idx[0]
+        visible = matches[_view_offset[0]:_view_offset[0] + COMP_WINDOW]
+        lines   = []
+        for i, (cmd, desc) in enumerate(visible):
+            abs_i = i + _view_offset[0]
+            if abs_i == idx:
                 lines.append(("class:completion-menu.completion.current",     f"   {cmd:<22}"))
                 lines.append(("class:completion-menu.meta.completion.current", f"   {desc}\n"))
             else:
@@ -1237,22 +1252,36 @@ async def repl_loop(ctx: ReplContext) -> None:
 
     @kb.add("enter")
     def _accept(event):
-        event.app.exit(result=buf.text)
+        matches = _slash_matches()
+        if matches:
+            # Enter runs the currently highlighted completion, not raw buffer text
+            event.app.exit(result=matches[_comp_idx[0]][0])
+        else:
+            event.app.exit(result=buf.text)
 
     def _has_completions() -> bool:
         return bool(_slash_matches())
 
     def _cycle(delta: int) -> None:
+        """Move highlight by delta rows; scroll viewport to keep it visible."""
         matches = _slash_matches()
-        if matches:
-            _comp_idx[0] = (_comp_idx[0] + delta) % min(len(matches), 8)
-            cmd = matches[_comp_idx[0]][0]
-            buf.set_document(Document(cmd, len(cmd)))
+        if not matches:
+            return
+        n = len(matches)
+        _comp_idx[0] = (_comp_idx[0] + delta) % n
+        # Scroll viewport so the highlighted row stays within the window
+        if _comp_idx[0] < _view_offset[0]:
+            _view_offset[0] = _comp_idx[0]
+        elif _comp_idx[0] >= _view_offset[0] + COMP_WINDOW:
+            _view_offset[0] = _comp_idx[0] - COMP_WINDOW + 1
 
     @kb.add("tab")
     def _tab(event):
-        if _has_completions():
-            _cycle(+1)
+        matches = _slash_matches()
+        if matches:
+            # Fill highlighted completion into the buffer
+            cmd = matches[_comp_idx[0]][0]
+            buf.set_document(Document(cmd, len(cmd)))
         else:
             buf.start_completion(select_first=False)
 
@@ -1306,7 +1335,7 @@ async def repl_loop(ctx: ReplContext) -> None:
             ConditionalContainer(
                 Window(
                     content=FormattedTextControl(_completions_text, focusable=False),
-                    height=Dimension(min=0, max=8),
+                    height=Dimension(min=0, max=COMP_WINDOW),
                 ),
                 filter=Condition(lambda: bool(_slash_matches())),
             ),
@@ -1329,7 +1358,8 @@ async def repl_loop(ctx: ReplContext) -> None:
     _ctrl_c_warned = False
 
     while True:
-        _comp_idx[0] = 0
+        _comp_idx[0]    = 0
+        _view_offset[0] = 0
         buf.reset()
         try:
             cmd = await app.run_async()
