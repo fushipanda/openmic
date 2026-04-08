@@ -22,9 +22,7 @@ def _get_whisper_model():
     from pywhispercpp.model import Model
 
     model_size = os.environ.get("WHISPER_MODEL", "small.en")
-    # Use False to skip stderr redirect — Textual owns stderr so
-    # the dup-based redirect in pywhispercpp crashes with fd=-1.
-    return Model(model_size, n_threads=os.cpu_count() or 4, redirect_whispercpp_logs_to=False)
+    return Model(model_size, n_threads=os.cpu_count() or 4, redirect_whispercpp_logs_to=os.devnull)
 
 
 class LocalRealtimeTranscriber:
