@@ -331,7 +331,7 @@ def _arrow_select(rows: list[dict]) -> Any | None:
 
     def _render(first: bool = False) -> None:
         if not first:
-            sys.stdout.write(f"\033[{len(rows) + 1}A")
+            sys.stdout.write(f"\033[{len(rows)}A")
         active_row = selectable[cursor]
         for i, row in enumerate(rows):
             sys.stdout.write(CL)
@@ -1189,7 +1189,7 @@ async def repl_loop(ctx: ReplContext) -> None:
         complete_while_typing=True,    # popup appears while typing
         auto_suggest=_PTAutoSuggest(), # ghost text inline too
         style=Style.from_dict(OPENMIC_STYLE),
-        reserve_space_for_menu=8,
+        reserve_space_for_menu=0,
     )
 
     _ctrl_c_warned = False
