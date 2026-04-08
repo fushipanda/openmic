@@ -360,25 +360,25 @@ def _arrow_select(rows: list[dict]) -> Any | None:
     try:
         tty.setraw(fd)
         while True:
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
-                rlist, _, _ = _select.select([sys.stdin], [], [], 0.05)
+            ch = os.read(fd, 1)          # os.read bypasses Python IO buffering
+            if ch == b"\x1b":
+                rlist, _, _ = _select.select([fd], [], [], 0.05)
                 if rlist:
-                    nxt = sys.stdin.read(1)
-                    if nxt == "[":
-                        arrow = sys.stdin.read(1)
-                        if arrow == "A":
+                    nxt = os.read(fd, 1)
+                    if nxt == b"[":
+                        arrow = os.read(fd, 1)
+                        if arrow == b"A":
                             cursor = max(0, cursor - 1)
                             _render()
-                        elif arrow == "B":
+                        elif arrow == b"B":
                             cursor = min(len(selectable) - 1, cursor + 1)
                             _render()
                 else:
                     break  # plain Escape — cancel
-            elif ch in ("\r", "\n"):
+            elif ch in (b"\r", b"\n"):
                 result = rows[selectable[cursor]]["value"]
                 break
-            elif ch == "\x03":
+            elif ch == b"\x03":
                 raise KeyboardInterrupt
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -1030,7 +1030,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
 
 TEAL        = "#00d4aa"   # primary accent (from banner)
 TEAL_DIM    = "#007a63"   # muted teal for separators
-GHOST_TEXT  = "#4a5568"   # inline auto-suggestion
+GHOST_TEXT  = "#6c7a8a"   # inline auto-suggestion (light enough to read on dark bg)
 META_DIM    = "#3d4a5c"   # description text (unselected)
 META_BRIGHT = "#8899aa"   # description text (selected)
 
@@ -1126,30 +1126,41 @@ async def repl_loop(ctx: ReplContext) -> None:
     hint = f"  {model_label}" if model_label else ""
     console.print(f"\n[bold {TEAL}]openmic[/][dim]{hint}  —  /help for commands[/]\n")
 
-    def _message():
+    # Separator is printed by Rich before each prompt so prompt_toolkit's
+    # scroll/reserve logic only needs to account for the single-line input + menu.
+    def _sep() -> None:
         cols = shutil.get_terminal_size((80, 24)).columns
-        sep  = "─" * cols
-        return FormattedText([
-            ("class:separator", sep + "\n"),
-            ("class:prompt",    "›  "),
-        ])
+        console.print(f"[{TEAL_DIM}]{'─' * cols}[/]", end="")
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
     session: PromptSession = PromptSession(
-        message=_message,
+        message=FormattedText([("class:prompt", "›  ")]),
         completer=_PTCompleter(),
-        complete_while_typing=False,   # ghost text by default; Tab for full popup
-        auto_suggest=_PTAutoSuggest(),
+        complete_while_typing=True,    # popup appears while typing
+        auto_suggest=_PTAutoSuggest(), # ghost text inline too
         style=Style.from_dict(OPENMIC_STYLE),
         reserve_space_for_menu=8,
     )
 
+    _ctrl_c_warned = False
+
     while True:
+        _sep()
         try:
             cmd = await session.prompt_async()
-        except (KeyboardInterrupt, EOFError):
+            _ctrl_c_warned = False   # reset after a successful input
+        except KeyboardInterrupt:
+            if _ctrl_c_warned:
+                console.print("\n[dim]Goodbye![/]")
+                break
+            _ctrl_c_warned = True
+            console.print("\n[dim]Press Ctrl+C again to exit, or type /exit[/]")
+            continue
+        except EOFError:
             console.print("\n[dim]Goodbye![/]")
             break
-        console.print()  # breathing room before output
+        console.print()
         running = await handle_command(cmd.strip(), ctx)
         if not running:
             console.print("[dim]Goodbye![/]")
