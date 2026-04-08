@@ -1024,25 +1024,67 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
 # REPL loop
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# openmic color scheme
+# ---------------------------------------------------------------------------
+
+TEAL        = "#00d4aa"   # primary accent (from banner)
+TEAL_DIM    = "#007a63"   # muted teal for separators
+GHOST_TEXT  = "#4a5568"   # inline auto-suggestion
+META_DIM    = "#3d4a5c"   # description text (unselected)
+META_BRIGHT = "#8899aa"   # description text (selected)
+
+OPENMIC_STYLE = {
+    # Separator lines and prompt character
+    "separator":  f"{TEAL_DIM}",
+    "prompt":     f"{TEAL} bold",
+
+    # Ghost-text auto-suggestion (appears inline after cursor)
+    "auto-suggestion": GHOST_TEXT,
+
+    # Completion popup — no background, uses terminal bg
+    "completion-menu":                           "",
+    "completion-menu.completion":                f"fg:{META_DIM}",
+    "completion-menu.completion.current":        f"fg:{TEAL} bold",
+    "completion-menu.meta.completion":           f"fg:{META_DIM}",
+    "completion-menu.meta.completion.current":   f"fg:{META_BRIGHT}",
+    "scrollbar.background":                      "",
+    "scrollbar.button":                          f"fg:{TEAL_DIM}",
+}
+
+
+class _CommandAutoSuggest:
+    """
+    Fish-shell style: first matching command appears as ghost text after the cursor.
+    Right-arrow or End to accept. Tab to show full popup with descriptions.
+    """
+    def get_suggestion(self, buffer, document):
+        from prompt_toolkit.auto_suggest import Suggestion
+        text = document.text_before_cursor
+        if not text:
+            return None
+
+        if text.startswith("/"):
+            for cmd, _ in HELP_COMMANDS:
+                if cmd and cmd.lower().startswith(text.lower()) and len(cmd) > len(text):
+                    return Suggestion(cmd[len(text):])
+
+        return None
+
+
 class _CommandCompleter:
-    """prompt_toolkit Completer that suggests /commands and @transcript mentions."""
+    """Full popup completer — Tab to trigger, shows all matches + descriptions."""
 
     def get_completions(self, document, complete_event):
         from prompt_toolkit.completion import Completion
         text = document.text_before_cursor
 
-        # Slash-command completions
         if text.startswith("/"):
             for cmd, desc in HELP_COMMANDS:
                 if cmd and cmd.lower().startswith(text.lower()):
-                    yield Completion(
-                        cmd,
-                        start_position=-len(text),
-                        display_meta=desc,
-                    )
+                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
             return
 
-        # @mention completions — match after the last @
         at_idx = text.rfind("@")
         if at_idx != -1:
             prefix = text[at_idx + 1:]
@@ -1051,9 +1093,8 @@ class _CommandCompleter:
                     meta    = _parse_transcript_meta(path)
                     display = format_transcript_title(path.stem[:16], meta["name"])
                     if prefix.lower() in display.lower():
-                        completion_text = f"[{display}]"
                         yield Completion(
-                            completion_text,
+                            f"[{display}]",
                             start_position=-len(prefix),
                             display=f"@[{display}]",
                             display_meta="transcript",
@@ -1062,22 +1103,19 @@ class _CommandCompleter:
                 pass
 
 
-_REPL_STYLE_DEF = {
-    "completion-menu":                    "bg:#1e1e2e",
-    "completion-menu.completion":         "fg:#cdd6f4",
-    "completion-menu.completion.current": "bg:#313244 fg:#00d4aa bold",
-    "completion-menu.meta.completion":              "fg:#585b70",
-    "completion-menu.meta.completion.current":      "fg:#a6adc8",
-    "scrollbar.background":  "bg:#313244",
-    "scrollbar.button":      "bg:#6c7086",
-}
-
-
 async def repl_loop(ctx: ReplContext) -> None:
     """Interactive REPL — reads commands until /exit or EOF."""
+    import shutil
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.auto_suggest import AutoSuggest
+    from prompt_toolkit.completion import Completer
+    from prompt_toolkit.formatted_text import FormattedText
     from prompt_toolkit.styles import Style
+
+    class _PTAutoSuggest(AutoSuggest):
+        _inner = _CommandAutoSuggest()
+        def get_suggestion(self, buffer, document):
+            return self._inner.get_suggestion(buffer, document)
 
     class _PTCompleter(Completer):
         _inner = _CommandCompleter()
@@ -1085,23 +1123,33 @@ async def repl_loop(ctx: ReplContext) -> None:
             yield from self._inner.get_completions(document, complete_event)
 
     model_label = UsageTracker.current_model_label()
-    prompt_suffix = f"({model_label}) " if model_label else ""
-    console.print(f"\n[bold #00d4aa]openmic[/] [dim]{prompt_suffix}— type /help for commands[/]\n")
+    hint = f"  {model_label}" if model_label else ""
+    console.print(f"\n[bold {TEAL}]openmic[/][dim]{hint}  —  /help for commands[/]\n")
+
+    def _message():
+        cols = shutil.get_terminal_size((80, 24)).columns
+        sep  = "─" * cols
+        return FormattedText([
+            ("class:separator", sep + "\n"),
+            ("class:prompt",    "›  "),
+        ])
 
     session: PromptSession = PromptSession(
+        message=_message,
         completer=_PTCompleter(),
-        complete_while_typing=True,
-        style=Style.from_dict(_REPL_STYLE_DEF),
-        reserve_space_for_menu=6,
+        complete_while_typing=False,   # ghost text by default; Tab for full popup
+        auto_suggest=_PTAutoSuggest(),
+        style=Style.from_dict(OPENMIC_STYLE),
+        reserve_space_for_menu=8,
     )
 
     while True:
         try:
-            cmd = await session.prompt_async("openmic › ")
+            cmd = await session.prompt_async()
         except (KeyboardInterrupt, EOFError):
             console.print("\n[dim]Goodbye![/]")
             break
-
+        console.print()  # breathing room before output
         running = await handle_command(cmd.strip(), ctx)
         if not running:
             console.print("[dim]Goodbye![/]")
