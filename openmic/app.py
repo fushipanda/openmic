@@ -624,8 +624,8 @@ async def _spinner_task(label: str, done: asyncio.Event) -> None:
 
         sys.stdout.write(
             f"\r{_TEAL_ANSI}{frame}{_RST_ANSI}"
-            f"  {label}"
-            f"  {_DIM_ANSI}{time_str}{_RST_ANSI}"
+            f"    {label}"
+            f"    {_DIM_ANSI}{time_str}{_RST_ANSI}"
             f"   "   # trailing spaces to overwrite any previous longer line
         )
         sys.stdout.flush()
@@ -1155,50 +1155,170 @@ class _CommandCompleter:
 async def repl_loop(ctx: ReplContext) -> None:
     """Interactive REPL — reads commands until /exit or EOF."""
     import shutil
-    from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+    from prompt_toolkit.key_binding.bindings.emacs import load_emacs_bindings
+    from prompt_toolkit.key_binding.bindings.basic import load_basic_bindings
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import HSplit, Window, ConditionalContainer
+    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.layout.dimension import Dimension
+    from prompt_toolkit.layout.processors import BeforeInput, AppendAutoSuggestion
     from prompt_toolkit.auto_suggest import AutoSuggest
     from prompt_toolkit.completion import Completer
-    from prompt_toolkit.formatted_text import FormattedText
+    from prompt_toolkit.filters import Condition
     from prompt_toolkit.styles import Style
-
-    class _PTAutoSuggest(AutoSuggest):
-        _inner = _CommandAutoSuggest()
-        def get_suggestion(self, buffer, document):
-            return self._inner.get_suggestion(buffer, document)
-
-    class _PTCompleter(Completer):
-        _inner = _CommandCompleter()
-        def get_completions(self, document, complete_event):
-            yield from self._inner.get_completions(document, complete_event)
 
     model_label = UsageTracker.current_model_label()
     hint = f"  {model_label}" if model_label else ""
     console.print(f"\n[bold {TEAL}]openmic[/][dim]{hint}  —  /help for commands[/]\n")
 
-    # Separator is printed by Rich before each prompt so prompt_toolkit's
-    # scroll/reserve logic only needs to account for the single-line input + menu.
-    def _sep() -> None:
-        cols = shutil.get_terminal_size((80, 24)).columns
-        console.print(f"[{TEAL_DIM}]{'─' * cols}[/]", end="")
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+    history   = InMemoryHistory()
+    _suggest  = _CommandAutoSuggest()
+    _completer = _CommandCompleter()
+    _comp_idx = [0]  # current Tab-cycle position
 
-    session: PromptSession = PromptSession(
-        message=FormattedText([("class:prompt", "›  ")]),
-        completer=_PTCompleter(),
-        complete_while_typing=True,    # popup appears while typing
-        auto_suggest=_PTAutoSuggest(), # ghost text inline too
+    class _AutoSuggest(AutoSuggest):
+        def get_suggestion(self, buffer, document):
+            from prompt_toolkit.auto_suggest import Suggestion
+            s = _suggest.get_suggestion(buffer, document)
+            return s
+
+    class _Completer(Completer):
+        def get_completions(self, document, complete_event):
+            yield from _completer.get_completions(document, complete_event)
+
+    buf = Buffer(
+        history=history,
+        auto_suggest=_AutoSuggest(),
+        name="default",
+    )
+
+    # ── Completion display above separator ────────────────────────────────────
+
+    def _slash_matches() -> list[tuple[str, str]]:
+        text = buf.document.text_before_cursor
+        if not text.startswith("/"):
+            return []
+        return [
+            (cmd, desc) for cmd, desc in HELP_COMMANDS
+            if cmd and cmd.lower().startswith(text.lower())
+        ]
+
+    def _completions_text():
+        matches = _slash_matches()
+        if not matches:
+            return []
+        n = min(len(matches), 8)
+        idx = _comp_idx[0] % n
+        lines = []
+        for i, (cmd, desc) in enumerate(matches[:8]):
+            if i == idx:
+                lines.append(("class:completion-menu.completion.current",   f"  {cmd:<22}"))
+                lines.append(("class:completion-menu.meta.completion.current", f"  {desc}\n"))
+            else:
+                lines.append(("class:completion-menu.completion",            f"  {cmd:<22}"))
+                lines.append(("class:completion-menu.meta.completion",        f"  {desc}\n"))
+        return lines
+
+    def _sep_text():
+        cols = shutil.get_terminal_size((80, 24)).columns
+        return [("class:separator", "─" * cols)]
+
+    # ── Key bindings ──────────────────────────────────────────────────────────
+
+    kb = KeyBindings()
+
+    @kb.add("enter")
+    def _accept(event):
+        event.app.exit(result=buf.text)
+
+    @kb.add("tab")
+    def _tab(event):
+        matches = _slash_matches()
+        if matches:
+            _comp_idx[0] = (_comp_idx[0] + 1) % min(len(matches), 8)
+            cmd = matches[_comp_idx[0]][0]
+            buf.set_document(Document(cmd, len(cmd)))
+        else:
+            # @-mention or unknown — fall back to native completion
+            buf.start_completion(select_first=False)
+
+    @kb.add("s-tab")
+    def _shift_tab(event):
+        matches = _slash_matches()
+        if matches:
+            _comp_idx[0] = (_comp_idx[0] - 1) % min(len(matches), 8)
+            cmd = matches[_comp_idx[0]][0]
+            buf.set_document(Document(cmd, len(cmd)))
+
+    @kb.add("escape")
+    def _escape(event):
+        # Clear input on Escape (no completion popup to dismiss)
+        buf.reset()
+
+    @kb.add("c-c")
+    def _ctrl_c(event):
+        event.app.exit(exception=KeyboardInterrupt)
+
+    @kb.add("c-d")
+    def _ctrl_d(event):
+        event.app.exit(exception=EOFError)
+
+    # ── Layout: completions → separator → input (grows upward) ───────────────
+
+    layout = Layout(
+        HSplit([
+            ConditionalContainer(
+                Window(
+                    content=FormattedTextControl(_completions_text, focusable=False),
+                    height=Dimension(min=0, max=8),
+                ),
+                filter=Condition(lambda: bool(_slash_matches())),
+            ),
+            Window(
+                height=1,
+                content=FormattedTextControl(_sep_text, focusable=False),
+            ),
+            Window(
+                content=BufferControl(
+                    buffer=buf,
+                    input_processors=[
+                        BeforeInput("›  ", style="class:prompt"),
+                        AppendAutoSuggestion(),
+                    ],
+                    include_default_input_processors=False,
+                ),
+                height=1,
+                wrap_lines=False,
+            ),
+        ]),
+        focused_element=buf,
+    )
+
+    app = Application(
+        layout=layout,
+        key_bindings=merge_key_bindings([
+            load_basic_bindings(),
+            load_emacs_bindings(),
+            kb,
+        ]),
         style=Style.from_dict(OPENMIC_STYLE),
-        reserve_space_for_menu=0,
+        full_screen=False,
+        mouse_support=False,
     )
 
     _ctrl_c_warned = False
 
     while True:
-        _sep()
+        _comp_idx[0] = 0
+        buf.reset()
         try:
-            cmd = await session.prompt_async()
-            _ctrl_c_warned = False   # reset after a successful input
+            cmd = await app.run_async()
+            _ctrl_c_warned = False
         except KeyboardInterrupt:
             if _ctrl_c_warned:
                 console.print("\n[dim]Goodbye![/]")
