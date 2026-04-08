@@ -1268,17 +1268,10 @@ async def repl_loop(ctx: ReplContext) -> None:
     def _ctrl_d(event):
         event.app.exit(exception=EOFError)
 
-    # ── Layout: completions → separator → input (grows upward) ───────────────
+    # ── Layout: separator → input → completions (input at top, completions below) ──
 
     layout = Layout(
         HSplit([
-            ConditionalContainer(
-                Window(
-                    content=FormattedTextControl(_completions_text, focusable=False),
-                    height=Dimension(min=0, max=8),
-                ),
-                filter=Condition(lambda: bool(_slash_matches())),
-            ),
             Window(
                 height=1,
                 content=FormattedTextControl(_sep_text, focusable=False),
@@ -1294,6 +1287,13 @@ async def repl_loop(ctx: ReplContext) -> None:
                 ),
                 height=1,
                 wrap_lines=False,
+            ),
+            ConditionalContainer(
+                Window(
+                    content=FormattedTextControl(_completions_text, focusable=False),
+                    height=Dimension(min=0, max=8),
+                ),
+                filter=Condition(lambda: bool(_slash_matches())),
             ),
         ]),
         focused_element=buf,
