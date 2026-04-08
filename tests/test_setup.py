@@ -118,7 +118,7 @@ class TestMainRouting:
         """setup_complete: true should skip wizard and launch the app."""
         mock_config.return_value = {"setup_complete": True}
         with patch.object(sys, "argv", ["openmic"]):
-            with patch("openmic.app.asyncio.run") as mock_run, \
+            with patch("openmic.app.asyncio.run", side_effect=lambda coro: coro.close()) as mock_run, \
                  patch("openmic.app.print_banner"), \
                  patch("openmic.app._check_for_updates_sync"), \
                  patch("openmic.app.TranscriptRAG"):

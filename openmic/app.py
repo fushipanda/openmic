@@ -856,6 +856,9 @@ def main() -> None:
     """Entry point for the OpenMic application."""
     import sys
 
+    record_mode = False
+    session_name = None
+
     if len(sys.argv) > 1:
         if sys.argv[1] in ("--version", "-V"):
             from openmic.version import get_version
@@ -869,10 +872,11 @@ def main() -> None:
             from openmic.setup import run_setup
             run_setup()
             return
-        if sys.argv[1] in ("query", "q"):
-            # Skip recording, go straight to REPL
-            _run_repl_only()
-            return
+        if sys.argv[1] in ("record", "--record", "-r"):
+            record_mode = True
+            # Optional session name: openmic record my-meeting
+            if len(sys.argv) > 2:
+                session_name = "_".join(sys.argv[2:])
 
     config = _load_config()
     if not config.get("setup_complete"):
@@ -889,46 +893,20 @@ def main() -> None:
         os.environ.setdefault("LLM_MODEL", config["llm_model"])
 
     print_banner()
-
-    # Check for updates in background (best-effort)
     _check_for_updates_sync(config)
 
     rag = TranscriptRAG()
     ctx = ReplContext(rag=rag)
 
     async def _run():
-        path = await recording_mode(ctx=ctx)
-        if path:
-            ctx.latest_transcript_path = path
+        if record_mode:
+            path = await recording_mode(session_name=session_name, ctx=ctx)
+            if path:
+                ctx.latest_transcript_path = path
         await repl_loop(ctx)
 
     try:
         asyncio.run(_run())
-    except KeyboardInterrupt:
-        pass
-
-
-def _run_repl_only() -> None:
-    """Start directly in REPL mode (skip recording)."""
-    config = _load_config()
-    if not config.get("setup_complete"):
-        from openmic.setup import run_setup
-        run_setup()
-        config = _load_config()
-        if not config.get("setup_complete"):
-            return
-
-    if config.get("llm_provider"):
-        os.environ.setdefault("LLM_PROVIDER", config["llm_provider"])
-    if config.get("llm_model"):
-        os.environ.setdefault("LLM_MODEL", config["llm_model"])
-
-    print_banner()
-    rag = TranscriptRAG()
-    ctx = ReplContext(rag=rag)
-
-    try:
-        asyncio.run(repl_loop(ctx))
     except KeyboardInterrupt:
         pass
 
