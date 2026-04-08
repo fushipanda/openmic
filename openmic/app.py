@@ -115,7 +115,10 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
 }
 
+# Load project .env first, then fall back to the config-dir .env
+# (written by _update_env_file when no project .env exists).
 load_dotenv()
+load_dotenv(CONFIG_DIR / ".env", override=False)
 
 TRANSCRIPTION_REGISTRY: dict[str, dict] = {
     "elevenlabs": {
@@ -1457,14 +1460,15 @@ def _bootstrap() -> dict | None:
         config = _load_config()
         if not config.get("setup_complete"):
             return None
+    # UI-picked settings override .env so choices persist across sessions.
     if config.get("llm_provider"):
-        os.environ.setdefault("LLM_PROVIDER", config["llm_provider"])
+        os.environ["LLM_PROVIDER"] = config["llm_provider"]
     if config.get("llm_model"):
-        os.environ.setdefault("LLM_MODEL", config["llm_model"])
+        os.environ["LLM_MODEL"] = config["llm_model"]
     if config.get("transcription_backend"):
-        os.environ.setdefault("TRANSCRIPTION_BACKEND", config["transcription_backend"])
+        os.environ["TRANSCRIPTION_BACKEND"] = config["transcription_backend"]
     if config.get("whisper_model"):
-        os.environ.setdefault("WHISPER_MODEL", config["whisper_model"])
+        os.environ["WHISPER_MODEL"] = config["whisper_model"]
     return config
 
 
