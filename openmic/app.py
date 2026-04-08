@@ -776,8 +776,13 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     Ctrl+C stops recording and triggers batch transcription.
     Returns the saved transcript path, or None on failure.
     """
+    from rich.live import Live
+    from rich.text import Text as RichText
+
     lines: list[str] = []
-    partial_holder: list[str] = [""]  # mutable for callback closure
+    partial_holder: list[str] = [""]
+    committed_queue: list[str] = []
+    _dirty: list[bool] = [False]
 
     usage = ctx.usage if ctx else UsageTracker()
     verbose = ctx.verbose if ctx else False
@@ -788,12 +793,13 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
 
     def on_partial(text: str) -> None:
         partial_holder[0] = text
+        _dirty[0] = True
 
     def on_committed(text: str) -> None:
-        if partial_holder[0]:
-            partial_holder[0] = ""
+        partial_holder[0] = ""
         lines.append(text)
-        console.print(text)
+        committed_queue.append(text)
+        _dirty[0] = True
 
     def on_error(msg: str) -> None:
         console.print(f"[dim][{msg}][/]")
@@ -824,11 +830,20 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     console.print(f"[bold #ff4757]◉ RECORDING{session_info}[/]  [dim]Ctrl+C to stop[/]")
     console.print()
 
-    try:
-        while True:
-            await asyncio.sleep(0.1)
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+    with Live(RichText(""), console=console, refresh_per_second=8, transient=False) as live:
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                while committed_queue:
+                    text = committed_queue.pop(0)
+                    live.console.print(text)
+                    live.console.print()
+                if _dirty[0]:
+                    partial = partial_holder[0]
+                    live.update(RichText(partial, style="dim italic") if partial else RichText(""))
+                    _dirty[0] = False
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
 
     console.print()
     console.print("[dim]Stopping...[/]")
@@ -851,11 +866,30 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         segments = BatchTranscriberCls.parse_diarized_result(result)
         transcript_path = save_transcript(segments, session_name)
 
+        _SPEAKER_COLORS = [
+            "#00d4aa",  # teal
+            "#ff6b6b",  # coral
+            "#4dabf7",  # blue
+            "#ffd43b",  # yellow
+            "#a9e34b",  # lime
+            "#da77f2",  # purple
+            "#ff922b",  # orange
+            "#66d9e8",  # cyan
+        ]
+        speaker_color_map: dict[str, str] = {}
+        prev_speaker: str | None = None
+
         console.print()
         for seg in segments:
             speaker = seg.get("speaker", "Speaker")
             text = seg.get("text", "")
-            console.print(f"[bold #00d4aa][{speaker}][/] {text}")
+            if speaker not in speaker_color_map:
+                speaker_color_map[speaker] = _SPEAKER_COLORS[len(speaker_color_map) % len(_SPEAKER_COLORS)]
+            color = speaker_color_map[speaker]
+            if prev_speaker and prev_speaker != speaker:
+                console.print()
+            console.print(f"[bold {color}][{speaker}][/] {text}")
+            prev_speaker = speaker
 
         console.print()
         console.print(f"[dim]Saved to: {transcript_path.name}[/]")

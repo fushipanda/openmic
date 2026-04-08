@@ -33,7 +33,7 @@ class LocalRealtimeTranscriber:
     """
 
     SAMPLE_RATE = 16000
-    CHUNK_INTERVAL_SECS = 10
+    CHUNK_INTERVAL_SECS = int(os.environ.get("WHISPER_CHUNK_INTERVAL", "10"))
 
     def __init__(
         self,
