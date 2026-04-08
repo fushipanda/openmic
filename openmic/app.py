@@ -7,9 +7,14 @@ import asyncio
 import json
 import os
 import re
+import select as _select
+import sys
+import termios
+import tty
 from dataclasses import dataclass, field
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.markdown import Markdown as RichMarkdown
@@ -298,44 +303,126 @@ def _date_header(dt: datetime) -> str:
     return dt.strftime(f"%b {day}{suffix} %Y")
 
 
+def _arrow_select(rows: list[dict]) -> Any | None:
+    """
+    Inline arrow-key selector. Returns the selected item's value, or None on cancel.
+
+    Row kinds:
+      {"kind": "header", "text": str}
+      {"kind": "note",   "text": str}
+      {"kind": "item",   "primary": str, "secondary": str, "value": Any, "current": bool}
+    """
+    TEAL  = "\033[38;2;0;212;170m"
+    DIM   = "\033[2m"
+    BOLD  = "\033[1m"
+    RESET = "\033[0m"
+    CL    = "\r\033[K"
+
+    selectable = [i for i, r in enumerate(rows) if r.get("kind") == "item"]
+    if not selectable:
+        return None
+
+    # Start on the first item marked current, else 0
+    cursor = 0
+    for j, i in enumerate(selectable):
+        if rows[i].get("current"):
+            cursor = j
+            break
+
+    def _render(first: bool = False) -> None:
+        if not first:
+            sys.stdout.write(f"\033[{len(rows) + 1}A")
+        active_row = selectable[cursor]
+        for i, row in enumerate(rows):
+            sys.stdout.write(CL)
+            k = row["kind"]
+            if k == "header":
+                sys.stdout.write(f"  {BOLD}{row['text']}{RESET}\n")
+            elif k == "note":
+                sys.stdout.write(f"    {DIM}{row['text']}{RESET}\n")
+            else:
+                is_active = (i == active_row)
+                cur_mark = f"{TEAL}✓{RESET} " if row.get("current") and not is_active else "  "
+                prefix   = f"  {TEAL}→{RESET} " if is_active else "     "
+                primary  = f"{TEAL}{BOLD}{row['primary']}{RESET}" if is_active else row["primary"]
+                sec      = row.get("secondary", "")
+                secondary = f"  {DIM}{sec}{RESET}" if sec else ""
+                sys.stdout.write(f"{prefix}{cur_mark}{primary}{secondary}\n")
+        sys.stdout.write(CL)
+        sys.stdout.write(f"  {DIM}↑↓ · Enter select · Esc cancel{RESET}")
+        sys.stdout.flush()
+
+    _render(first=True)
+
+    fd  = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    result = None
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                rlist, _, _ = _select.select([sys.stdin], [], [], 0.05)
+                if rlist:
+                    nxt = sys.stdin.read(1)
+                    if nxt == "[":
+                        arrow = sys.stdin.read(1)
+                        if arrow == "A":
+                            cursor = max(0, cursor - 1)
+                            _render()
+                        elif arrow == "B":
+                            cursor = min(len(selectable) - 1, cursor + 1)
+                            _render()
+                else:
+                    break  # plain Escape — cancel
+            elif ch in ("\r", "\n"):
+                result = rows[selectable[cursor]]["value"]
+                break
+            elif ch == "\x03":
+                raise KeyboardInterrupt
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    return result
+
+
 def pick_transcript(transcripts: list[Path]) -> Path | None:
-    """Print a numbered list of transcripts and return the user's pick."""
+    """Arrow-key transcript picker."""
     if not transcripts:
         console.print("[dim]No transcripts found.[/]")
         return None
 
-    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
+    rows: list[dict] = []
     last_header = None
-    for i, path in enumerate(transcripts, 1):
+    for path in transcripts:
         meta = _parse_transcript_meta(path)
-        dt = meta["datetime"]
+        dt   = meta["datetime"]
         if dt:
             header = _date_header(dt)
             if header != last_header:
-                t.add_row("", f"[bold]{header}[/]", "")
+                rows.append({"kind": "header", "text": header})
                 last_header = header
             has_notes = (NOTES_DIR / (meta["stem"] + "_notes.md")).exists()
-            star = "" if has_notes else "[bold #00d4aa]*[/]"
-            title = format_transcript_title(path.stem[:16], meta["name"])
-            time_str = dt.strftime("%-I:%M %p")
-            t.add_row(f"[dim]{i}[/]", f"{star} {title}", f"[dim]{time_str}[/]")
+            title     = format_transcript_title(path.stem[:16], meta["name"])
+            time_str  = dt.strftime("%-I:%M %p")
+            primary   = f"{'  ' if has_notes else '* '}{title}"
+            rows.append({
+                "kind":    "item",
+                "primary": primary,
+                "secondary": time_str,
+                "value":   path,
+                "current": False,
+            })
         else:
-            t.add_row(f"[dim]{i}[/]", path.stem, "")
+            rows.append({"kind": "item", "primary": path.stem, "secondary": "", "value": path, "current": False})
 
-    console.print(t)
     console.print("[dim]  * = notes not yet generated[/]")
-
     try:
-        choice = input("Pick number (or Enter to cancel): ").strip()
-        if not choice:
-            return None
-        idx = int(choice) - 1
-        if 0 <= idx < len(transcripts):
-            return transcripts[idx]
-        console.print("[dim]Invalid selection.[/]")
-    except (ValueError, KeyboardInterrupt):
-        pass
-    return None
+        return _arrow_select(rows)
+    except KeyboardInterrupt:
+        return None
 
 
 def _get_ollama_models() -> list[tuple[str, str]]:
@@ -354,134 +441,121 @@ def _get_ollama_models() -> list[tuple[str, str]]:
 
 
 def pick_model() -> tuple[str, str] | None:
-    """Print flat model list and return (provider, model_id) or None."""
-    items: list[tuple[str, str, str, str]] = []  # (provider_key, model_id, provider_label, description)
+    """Arrow-key model picker. Returns (provider, model_id) or None."""
     current_provider = os.environ.get("LLM_PROVIDER", "")
-    current_model = os.environ.get("LLM_MODEL", "")
+    current_model    = os.environ.get("LLM_MODEL", "")
 
-    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
-    last_provider = None
+    rows: list[dict] = []
     for pkey, info in MODEL_REGISTRY.items():
         models = _get_ollama_models() if pkey == "ollama" else info["models"]
+        rows.append({"kind": "header", "text": info["label"]})
         if pkey == "ollama" and not models:
-            t.add_row("", f"[bold]{info['label']}[/]", "")
-            t.add_row("", "[dim]  Ollama not running or no models installed — visit ollama.ai[/]", "")
+            rows.append({"kind": "note", "text": "Ollama not running or no models installed — visit ollama.ai"})
             continue
         for model_id, desc in models:
-            if pkey != last_provider:
-                t.add_row("", f"[bold]{info['label']}[/]", "")
-                last_provider = pkey
-            n = len(items) + 1
-            is_current = pkey == current_provider and model_id == current_model
-            marker = "[bold #00d4aa]✓[/] " if is_current else "  "
-            t.add_row(f"[dim]{n}[/]", f"{marker}[bold]{model_id}[/]", f"[dim]{desc}[/]")
-            items.append((pkey, model_id, info["label"], desc))
-
-    console.print(t)
+            rows.append({
+                "kind":      "item",
+                "primary":   model_id,
+                "secondary": desc,
+                "value":     (pkey, model_id),
+                "current":   pkey == current_provider and model_id == current_model,
+            })
 
     try:
-        choice = input("Pick number (or Enter to cancel): ").strip()
-        if not choice:
+        result = _arrow_select(rows)
+    except KeyboardInterrupt:
+        return None
+
+    if result is None:
+        return None
+
+    pkey, model_id = result
+    env_key = MODEL_REGISTRY[pkey]["env_key"]
+    if env_key and not os.environ.get(env_key):
+        try:
+            api_key = input(f"  Enter {env_key}: ").strip()
+            if api_key:
+                os.environ[env_key] = api_key
+                _update_env_file(env_key, api_key)
+            else:
+                console.print("[dim]API key required — cancelled.[/]")
+                return None
+        except KeyboardInterrupt:
             return None
-        idx = int(choice) - 1
-        if 0 <= idx < len(items):
-            pkey, model_id, _, _ = items[idx]
-            env_key = MODEL_REGISTRY[pkey]["env_key"]
-            if env_key and not os.environ.get(env_key):
-                try:
-                    api_key = input(f"Enter {env_key}: ").strip()
-                    if api_key:
-                        os.environ[env_key] = api_key
-                        _update_env_file(env_key, api_key)
-                    else:
-                        console.print("[dim]API key required — cancelled.[/]")
-                        return None
-                except KeyboardInterrupt:
-                    return None
-            return pkey, model_id
-        console.print("[dim]Invalid selection.[/]")
-    except (ValueError, KeyboardInterrupt):
-        pass
-    return None
+    return pkey, model_id
 
 
 def pick_template() -> str:
-    """Print template list and return selected template ID."""
+    """Arrow-key template picker. Returns selected template ID."""
     from openmic.templates import TemplateManager
     tm = TemplateManager()
-    builtin = sorted(tm.get_builtin_templates(), key=lambda t: t.id)
-    user = sorted(tm.get_user_templates(), key=lambda t: t.id)
-    all_templates = builtin + user
+    builtin      = sorted(tm.get_builtin_templates(), key=lambda t: t.id)
+    user_tmpls   = sorted(tm.get_user_templates(), key=lambda t: t.id)
+    all_templates = builtin + user_tmpls
 
     if not all_templates:
         return "default"
 
-    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
-    for i, tmpl in enumerate(all_templates, 1):
-        label = "[dim](custom)[/] " if not tmpl.is_builtin else ""
-        t.add_row(f"[dim]{i}[/]", f"[bold]{tmpl.name}[/]", f"[dim]{label}{tmpl.description}[/]")
-    console.print(t)
+    rows: list[dict] = []
+    for tmpl in all_templates:
+        tag  = " (custom)" if not tmpl.is_builtin else ""
+        rows.append({
+            "kind":      "item",
+            "primary":   tmpl.name,
+            "secondary": f"{tmpl.description}{tag}",
+            "value":     tmpl.id,
+            "current":   tmpl.id == "default",
+        })
 
     try:
-        choice = input("Pick template (or Enter for default): ").strip()
-        if not choice:
-            return "default"
-        idx = int(choice) - 1
-        if 0 <= idx < len(all_templates):
-            return all_templates[idx].id
-        console.print("[dim]Invalid selection.[/]")
-    except (ValueError, KeyboardInterrupt):
-        pass
-    return "default"
+        result = _arrow_select(rows)
+    except KeyboardInterrupt:
+        return "default"
+    return result if result is not None else "default"
 
 
 def pick_transcription_backend() -> tuple[str, str] | None:
-    """Print transcription backend list and return (backend_key, model_id) or None."""
-    items: list[tuple[str, str]] = []  # (backend_key, model_id)
+    """Arrow-key transcription backend picker. Returns (backend_key, model_id) or None."""
     current_backend = os.environ.get("TRANSCRIPTION_BACKEND", "elevenlabs").lower()
-    current_model = os.environ.get("WHISPER_MODEL", "")
+    current_model   = os.environ.get("WHISPER_MODEL", "")
 
-    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
-    last_backend = None
+    rows: list[dict] = []
     for bkey, info in TRANSCRIPTION_REGISTRY.items():
+        rows.append({"kind": "header", "text": info["label"]})
         for model_id, desc in info["models"]:
-            if bkey != last_backend:
-                t.add_row("", f"[bold]{info['label']}[/]", "")
-                last_backend = bkey
-            n = len(items) + 1
             is_current = bkey == current_backend and (
                 model_id == current_model or (bkey == "elevenlabs" and not current_model)
             )
-            marker = "[bold #00d4aa]✓[/] " if is_current else "  "
-            t.add_row(f"[dim]{n}[/]", f"{marker}[bold]{model_id}[/]", f"[dim]{desc}[/]")
-            items.append((bkey, model_id))
-
-    console.print(t)
+            rows.append({
+                "kind":      "item",
+                "primary":   model_id,
+                "secondary": desc,
+                "value":     (bkey, model_id),
+                "current":   is_current,
+            })
 
     try:
-        choice = input("Pick number (or Enter to cancel): ").strip()
-        if not choice:
+        result = _arrow_select(rows)
+    except KeyboardInterrupt:
+        return None
+
+    if result is None:
+        return None
+
+    bkey, model_id = result
+    env_key = TRANSCRIPTION_REGISTRY[bkey]["env_key"]
+    if env_key and not os.environ.get(env_key):
+        try:
+            api_key = input(f"  Enter {env_key}: ").strip()
+            if api_key:
+                os.environ[env_key] = api_key
+                _update_env_file(env_key, api_key)
+            else:
+                console.print("[dim]API key required — cancelled.[/]")
+                return None
+        except KeyboardInterrupt:
             return None
-        idx = int(choice) - 1
-        if 0 <= idx < len(items):
-            bkey, model_id = items[idx]
-            env_key = TRANSCRIPTION_REGISTRY[bkey]["env_key"]
-            if env_key and not os.environ.get(env_key):
-                try:
-                    api_key = input(f"Enter {env_key}: ").strip()
-                    if api_key:
-                        os.environ[env_key] = api_key
-                        _update_env_file(env_key, api_key)
-                    else:
-                        console.print("[dim]API key required — cancelled.[/]")
-                        return None
-                except KeyboardInterrupt:
-                    return None
-            return bkey, model_id
-        console.print("[dim]Invalid selection.[/]")
-    except (ValueError, KeyboardInterrupt):
-        pass
-    return None
+    return bkey, model_id
 
 
 # ---------------------------------------------------------------------------
@@ -950,21 +1024,85 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
 # REPL loop
 # ---------------------------------------------------------------------------
 
+class _CommandCompleter:
+    """prompt_toolkit Completer that suggests /commands and @transcript mentions."""
+
+    def get_completions(self, document, complete_event):
+        from prompt_toolkit.completion import Completion
+        text = document.text_before_cursor
+
+        # Slash-command completions
+        if text.startswith("/"):
+            for cmd, desc in HELP_COMMANDS:
+                if cmd and cmd.lower().startswith(text.lower()):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(text),
+                        display_meta=desc,
+                    )
+            return
+
+        # @mention completions — match after the last @
+        at_idx = text.rfind("@")
+        if at_idx != -1:
+            prefix = text[at_idx + 1:]
+            try:
+                for path in list_transcripts():
+                    meta    = _parse_transcript_meta(path)
+                    display = format_transcript_title(path.stem[:16], meta["name"])
+                    if prefix.lower() in display.lower():
+                        completion_text = f"[{display}]"
+                        yield Completion(
+                            completion_text,
+                            start_position=-len(prefix),
+                            display=f"@[{display}]",
+                            display_meta="transcript",
+                        )
+            except Exception:
+                pass
+
+
+_REPL_STYLE_DEF = {
+    "completion-menu":                    "bg:#1e1e2e",
+    "completion-menu.completion":         "fg:#cdd6f4",
+    "completion-menu.completion.current": "bg:#313244 fg:#00d4aa bold",
+    "completion-menu.meta.completion":              "fg:#585b70",
+    "completion-menu.meta.completion.current":      "fg:#a6adc8",
+    "scrollbar.background":  "bg:#313244",
+    "scrollbar.button":      "bg:#6c7086",
+}
+
+
 async def repl_loop(ctx: ReplContext) -> None:
     """Interactive REPL — reads commands until /exit or EOF."""
-    model_label = UsageTracker.current_model_label()
-    prompt_suffix = f"[dim]({model_label})[/] " if model_label else ""
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.styles import Style
 
-    console.print(f"\n[bold #00d4aa]openmic[/] {prompt_suffix}[dim italic]— type /help for commands[/]\n")
+    class _PTCompleter(Completer):
+        _inner = _CommandCompleter()
+        def get_completions(self, document, complete_event):
+            yield from self._inner.get_completions(document, complete_event)
+
+    model_label = UsageTracker.current_model_label()
+    prompt_suffix = f"({model_label}) " if model_label else ""
+    console.print(f"\n[bold #00d4aa]openmic[/] [dim]{prompt_suffix}— type /help for commands[/]\n")
+
+    session: PromptSession = PromptSession(
+        completer=_PTCompleter(),
+        complete_while_typing=True,
+        style=Style.from_dict(_REPL_STYLE_DEF),
+        reserve_space_for_menu=6,
+    )
 
     while True:
         try:
-            cmd = input("openmic › ").strip()
+            cmd = await session.prompt_async("openmic › ")
         except (KeyboardInterrupt, EOFError):
             console.print("\n[dim]Goodbye![/]")
             break
 
-        running = await handle_command(cmd, ctx)
+        running = await handle_command(cmd.strip(), ctx)
         if not running:
             console.print("[dim]Goodbye![/]")
             break

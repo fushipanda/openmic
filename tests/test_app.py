@@ -271,28 +271,30 @@ class TestPickTranscript:
     def test_returns_none_on_cancel(self, tmp_path):
         p = tmp_path / "2026-04-08_14-30.md"
         p.write_text("# Transcript")
-        with patch("builtins.input", return_value=""):
+        with patch("openmic.app._arrow_select", return_value=None):
             result = pick_transcript([p])
         assert result is None
 
     def test_returns_correct_path_on_valid_pick(self, tmp_path):
         p = tmp_path / "2026-04-08_14-30.md"
         p.write_text("# Transcript")
-        with patch("builtins.input", return_value="1"):
+        with patch("openmic.app._arrow_select", return_value=p):
             result = pick_transcript([p])
         assert result == p
 
     def test_returns_none_on_invalid_number(self, tmp_path):
+        """_arrow_select only returns valid values; None on cancel."""
         p = tmp_path / "2026-04-08_14-30.md"
         p.write_text("# Transcript")
-        with patch("builtins.input", return_value="99"):
+        with patch("openmic.app._arrow_select", return_value=None):
             result = pick_transcript([p])
         assert result is None
 
     def test_returns_none_on_non_numeric(self, tmp_path):
+        """_arrow_select never returns non-path values for transcript picker."""
         p = tmp_path / "2026-04-08_14-30.md"
         p.write_text("# Transcript")
-        with patch("builtins.input", return_value="abc"):
+        with patch("openmic.app._arrow_select", return_value=None):
             result = pick_transcript([p])
         assert result is None
 
