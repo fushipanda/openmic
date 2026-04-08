@@ -63,6 +63,11 @@ def _update_env_file(key: str, value: str) -> None:
 
 
 MODEL_REGISTRY: dict[str, dict] = {
+    "ollama": {
+        "label": "Ollama (Local — private)",
+        "env_key": None,   # No API key required
+        "models": [],      # Populated dynamically from running Ollama instance
+    },
     "anthropic": {
         "label": "Anthropic (Claude)",
         "env_key": "ANTHROPIC_API_KEY",
@@ -107,12 +112,37 @@ MODEL_REGISTRY: dict[str, dict] = {
 
 load_dotenv()
 
-_use_local = os.environ.get("TRANSCRIPTION_BACKEND", "").lower() == "local"
-if _use_local:
-    from openmic.local_transcribe import LocalRealtimeTranscriber as RealtimeTranscriber
-    from openmic.local_transcribe import LocalBatchTranscriber as BatchTranscriber
-else:
-    from openmic.transcribe import BatchTranscriber, RealtimeTranscriber
+TRANSCRIPTION_REGISTRY: dict[str, dict] = {
+    "elevenlabs": {
+        "label": "ElevenLabs Scribe (cloud)",
+        "env_key": "ELEVENLABS_API_KEY",
+        "models": [
+            ("scribe_v1", "Standard"),
+        ],
+    },
+    "local": {
+        "label": "Whisper / whisper.cpp (local — private)",
+        "env_key": None,
+        "models": [
+            ("tiny.en",        "Tiny — fastest"),
+            ("base.en",        "Base"),
+            ("small.en",       "Small — recommended"),
+            ("medium.en",      "Medium"),
+            ("large-v3",       "Large — most accurate"),
+            ("large-v3-turbo", "Large Turbo — fast + accurate"),
+        ],
+    },
+}
+
+
+def _get_transcribers():
+    """Return (RealtimeTranscriber, BatchTranscriber) based on current TRANSCRIPTION_BACKEND."""
+    backend = os.environ.get("TRANSCRIPTION_BACKEND", "elevenlabs").lower()
+    if backend == "local":
+        from openmic.local_transcribe import LocalRealtimeTranscriber, LocalBatchTranscriber
+        return LocalRealtimeTranscriber, LocalBatchTranscriber
+    from openmic.transcribe import RealtimeTranscriber, BatchTranscriber
+    return RealtimeTranscriber, BatchTranscriber
 
 from openmic.audio import AudioRecorder
 from openmic.storage import (
@@ -148,6 +178,7 @@ HELP_COMMANDS = [
     ("/notes",           "Generate notes (with template selection)"),
     ("/regen",           "Regenerate notes using the saved template"),
     ("/model",           "Select LLM provider and model"),
+    ("/transcribe",      "Select transcription backend (ElevenLabs or local Whisper)"),
     ("/name <name>",     "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose",         "Toggle debug output"),
@@ -307,6 +338,21 @@ def pick_transcript(transcripts: list[Path]) -> Path | None:
     return None
 
 
+def _get_ollama_models() -> list[tuple[str, str]]:
+    """Return list of (model_name, size_label) from running Ollama instance."""
+    import urllib.request
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=2) as resp:
+            data = json.loads(resp.read())
+        return [
+            (m["name"], f"{m.get('size', 0) / 1_073_741_824:.1f}GB")
+            for m in data.get("models", [])
+        ]
+    except Exception:
+        return []
+
+
 def pick_model() -> tuple[str, str] | None:
     """Print flat model list and return (provider, model_id) or None."""
     items: list[tuple[str, str, str, str]] = []  # (provider_key, model_id, provider_label, description)
@@ -316,7 +362,12 @@ def pick_model() -> tuple[str, str] | None:
     t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
     last_provider = None
     for pkey, info in MODEL_REGISTRY.items():
-        for model_id, desc in info["models"]:
+        models = _get_ollama_models() if pkey == "ollama" else info["models"]
+        if pkey == "ollama" and not models:
+            t.add_row("", f"[bold]{info['label']}[/]", "")
+            t.add_row("", "[dim]  Ollama not running or no models installed — visit ollama.ai[/]", "")
+            continue
+        for model_id, desc in models:
             if pkey != last_provider:
                 t.add_row("", f"[bold]{info['label']}[/]", "")
                 last_provider = pkey
@@ -336,7 +387,7 @@ def pick_model() -> tuple[str, str] | None:
         if 0 <= idx < len(items):
             pkey, model_id, _, _ = items[idx]
             env_key = MODEL_REGISTRY[pkey]["env_key"]
-            if not os.environ.get(env_key):
+            if env_key and not os.environ.get(env_key):
                 try:
                     api_key = input(f"Enter {env_key}: ").strip()
                     if api_key:
@@ -382,6 +433,55 @@ def pick_template() -> str:
     except (ValueError, KeyboardInterrupt):
         pass
     return "default"
+
+
+def pick_transcription_backend() -> tuple[str, str] | None:
+    """Print transcription backend list and return (backend_key, model_id) or None."""
+    items: list[tuple[str, str]] = []  # (backend_key, model_id)
+    current_backend = os.environ.get("TRANSCRIPTION_BACKEND", "elevenlabs").lower()
+    current_model = os.environ.get("WHISPER_MODEL", "")
+
+    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 1))
+    last_backend = None
+    for bkey, info in TRANSCRIPTION_REGISTRY.items():
+        for model_id, desc in info["models"]:
+            if bkey != last_backend:
+                t.add_row("", f"[bold]{info['label']}[/]", "")
+                last_backend = bkey
+            n = len(items) + 1
+            is_current = bkey == current_backend and (
+                model_id == current_model or (bkey == "elevenlabs" and not current_model)
+            )
+            marker = "[bold #00d4aa]✓[/] " if is_current else "  "
+            t.add_row(f"[dim]{n}[/]", f"{marker}[bold]{model_id}[/]", f"[dim]{desc}[/]")
+            items.append((bkey, model_id))
+
+    console.print(t)
+
+    try:
+        choice = input("Pick number (or Enter to cancel): ").strip()
+        if not choice:
+            return None
+        idx = int(choice) - 1
+        if 0 <= idx < len(items):
+            bkey, model_id = items[idx]
+            env_key = TRANSCRIPTION_REGISTRY[bkey]["env_key"]
+            if env_key and not os.environ.get(env_key):
+                try:
+                    api_key = input(f"Enter {env_key}: ").strip()
+                    if api_key:
+                        os.environ[env_key] = api_key
+                        _update_env_file(env_key, api_key)
+                    else:
+                        console.print("[dim]API key required — cancelled.[/]")
+                        return None
+                except KeyboardInterrupt:
+                    return None
+            return bkey, model_id
+        console.print("[dim]Invalid selection.[/]")
+    except (ValueError, KeyboardInterrupt):
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -582,12 +682,14 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         if verbose:
             console.print(f"[dim]  dbg: {msg}[/]")
 
+    RealtimeTranscriberCls, BatchTranscriberCls = _get_transcribers()
+
     recorder = AudioRecorder(
         output_dir=RECORDINGS_DIR,
         on_audio_chunk=on_audio_chunk,
         on_limit_reached=lambda: console.print("\n[yellow]⚠ 6-hour limit reached — stopping.[/]"),
     )
-    transcriber = RealtimeTranscriber(
+    transcriber = RealtimeTranscriberCls(
         on_partial=on_partial,
         on_committed=on_committed,
         on_error=on_error,
@@ -624,9 +726,9 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
-            None, lambda: BatchTranscriber().transcribe_file(str(returned_wav))
+            None, lambda: BatchTranscriberCls().transcribe_file(str(returned_wav))
         )
-        segments = BatchTranscriber.parse_diarized_result(result)
+        segments = BatchTranscriberCls.parse_diarized_result(result)
         transcript_path = save_transcript(segments, session_name)
 
         console.print()
@@ -761,6 +863,8 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             provider, model = result
             os.environ["LLM_PROVIDER"] = provider
             os.environ["LLM_MODEL"] = model
+            _update_env_file("LLM_PROVIDER", provider)
+            _update_env_file("LLM_MODEL", model)
             config = _load_config()
             config["llm_provider"] = provider
             config["llm_model"] = model
@@ -769,6 +873,23 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             ctx.rag._qa_chain = None
             label = MODEL_REGISTRY[provider]["label"]
             console.print(f"[dim]Model set to {label}: {model}[/]")
+        return True
+
+    if cmd == "/transcribe":
+        result = pick_transcription_backend()
+        if result:
+            backend, model_id = result
+            os.environ["TRANSCRIPTION_BACKEND"] = backend
+            _update_env_file("TRANSCRIPTION_BACKEND", backend)
+            config = _load_config()
+            config["transcription_backend"] = backend
+            if backend == "local":
+                os.environ["WHISPER_MODEL"] = model_id
+                _update_env_file("WHISPER_MODEL", model_id)
+                config["whisper_model"] = model_id
+            _save_config(config)
+            label = TRANSCRIPTION_REGISTRY[backend]["label"]
+            console.print(f"[dim]Transcription set to {label}[/]")
         return True
 
     # --- Misc ---
@@ -853,7 +974,7 @@ async def repl_loop(ctx: ReplContext) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-_KNOWN_SUBCOMMANDS = {"record", "query", "notes", "list", "model", "update", "setup"}
+_KNOWN_SUBCOMMANDS = {"record", "query", "notes", "list", "model", "transcribe", "update", "setup"}
 
 _HELP_TEXT = """\
 Usage: openmic [command] [args]
@@ -867,6 +988,7 @@ Commands:
   openmic list                   List saved transcripts
   openmic model                  Interactive model picker
   openmic model <provider> <id>  Set model directly (e.g. anthropic claude-sonnet-4-6)
+  openmic transcribe             Select transcription backend (cloud or local Whisper)
   openmic update                 Self-update
   openmic setup                  Re-run setup wizard
   openmic --version              Show version
@@ -936,6 +1058,10 @@ def main() -> None:
         _run_set_model(rest)
         return
 
+    if first == "transcribe":
+        _run_set_transcription(rest)
+        return
+
     console.print(f"[dim]Unknown command: {first}[/]\n")
     print(_HELP_TEXT)
 
@@ -957,6 +1083,10 @@ def _bootstrap() -> dict | None:
         os.environ.setdefault("LLM_PROVIDER", config["llm_provider"])
     if config.get("llm_model"):
         os.environ.setdefault("LLM_MODEL", config["llm_model"])
+    if config.get("transcription_backend"):
+        os.environ.setdefault("TRANSCRIPTION_BACKEND", config["transcription_backend"])
+    if config.get("whisper_model"):
+        os.environ.setdefault("WHISPER_MODEL", config["whisper_model"])
     return config
 
 
@@ -1075,13 +1205,21 @@ def _run_set_model(args: list[str]) -> None:
             console.print(f"[dim]Unknown provider: {provider}[/]")
             console.print(f"[dim]Available: {', '.join(MODEL_REGISTRY)}[/]")
             return
-        valid_ids = [m for m, _ in MODEL_REGISTRY[provider]["models"]]
-        if model_id not in valid_ids:
-            console.print(f"[dim]Unknown model: {model_id}[/]")
-            console.print(f"[dim]Available for {provider}: {', '.join(valid_ids)}[/]")
+        # For ollama, accept any model string (user controls their install)
+        if provider != "ollama":
+            valid_ids = [m for m, _ in MODEL_REGISTRY[provider]["models"]]
+            if model_id not in valid_ids:
+                console.print(f"[dim]Unknown model: {model_id}[/]")
+                console.print(f"[dim]Available for {provider}: {', '.join(valid_ids)}[/]")
+                return
+        env_key = MODEL_REGISTRY[provider]["env_key"]
+        if env_key and not os.environ.get(env_key):
+            console.print(f"[dim]{env_key} not set — add it to .env[/]")
             return
         os.environ["LLM_PROVIDER"] = provider
         os.environ["LLM_MODEL"] = model_id
+        _update_env_file("LLM_PROVIDER", provider)
+        _update_env_file("LLM_MODEL", model_id)
         cfg = _load_config()
         cfg["llm_provider"] = provider
         cfg["llm_model"] = model_id
@@ -1130,6 +1268,29 @@ def _run_set_model(args: list[str]) -> None:
         _save_config(cfg)
         label = MODEL_REGISTRY[provider]["label"]
         console.print(f"Model set to [bold]{label}[/]: [bold #00d4aa]{model_id}[/]")
+
+
+def _run_set_transcription(args: list[str]) -> None:
+    """Set transcription backend from CLI args or launch interactive picker."""
+    config = _bootstrap()
+    if config is None:
+        return
+
+    # No args — full interactive picker
+    result = pick_transcription_backend()
+    if result:
+        backend, model_id = result
+        os.environ["TRANSCRIPTION_BACKEND"] = backend
+        _update_env_file("TRANSCRIPTION_BACKEND", backend)
+        cfg = _load_config()
+        cfg["transcription_backend"] = backend
+        if backend == "local":
+            os.environ["WHISPER_MODEL"] = model_id
+            _update_env_file("WHISPER_MODEL", model_id)
+            cfg["whisper_model"] = model_id
+        _save_config(cfg)
+        label = TRANSCRIPTION_REGISTRY[backend]["label"]
+        console.print(f"Transcription set to [bold]{label}[/]")
 
 
 def _check_for_updates_sync(config: dict) -> None:

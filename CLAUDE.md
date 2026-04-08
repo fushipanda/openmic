@@ -1,43 +1,64 @@
 # openmic
 
-A CLI/TUI meeting transcription tool built with Python and Textual. Records audio, streams
-live transcription to screen via ElevenLabs Scribe realtime, then runs a diarized batch
-transcription on stop. Saved transcripts are queryable via LangChain RAG, with a command
-to generate structured meeting notes.
+A privacy-first CLI meeting transcription tool. Records audio, transcribes in real-time,
+then runs diarized batch transcription on stop. Saved transcripts are queryable via LangChain
+RAG, with a command to generate structured meeting notes. Supports fully local operation
+(no cloud calls) via Whisper + Ollama.
 
 ## Architecture
 
 ```
 During session:
-  Mic ──► WebSocket (Scribe realtime) ──► live text displayed in TUI (no speaker labels)
-  Mic ──► local .wav file              ──► audio buffer on disk
+  Mic ──► Transcription backend ──► live text in terminal
+           ├── ElevenLabs Scribe (WebSocket, cloud)
+           └── whisper.cpp / pywhispercpp (local, private)
+  Mic ──► local .wav file ──► audio buffer on disk
 
 On stop:
-  .wav ──► Scribe batch API (diarize=True) ──► Speaker 1/2/etc labeled transcript
-                                            ──► saved to transcripts/ as markdown
-                                            ──► final labeled transcript replaces live preview on screen
+  .wav ──► batch transcription (diarize=True) ──► Speaker 1/2/etc labeled transcript
+                                               ──► saved to transcripts/ as markdown
 
 Post-session:
-  /query ──► LangChain RAG over transcripts/ ──► answer in TUI
-  /notes ──► LangChain summarisation chain   ──► structured notes saved to notes/
+  /query  ──► LangChain RAG over transcripts/  ──► answer in REPL
+  /notes  ──► LangChain summarisation chain    ──► structured notes saved to notes/
 ```
+
+## Privacy Modes
+
+| Mode | Transcription | LLM | Embeddings | Cloud calls |
+|------|--------------|-----|------------|-------------|
+| Cloud (default) | ElevenLabs Scribe | Anthropic/OpenAI/etc | OpenAI | All |
+| Hybrid | ElevenLabs Scribe | Ollama | Ollama (nomic-embed-text) | Transcription only |
+| Fully local | whisper.cpp | Ollama | Ollama (nomic-embed-text) | None |
+
+Switch transcription backend: `openmic transcribe` (or `/transcribe` in REPL)
+Switch LLM provider: `openmic model` (or `/model` in REPL)
 
 ## Tech Stack
 
 - Python 3.12+
-- Textual — TUI framework
+- Rich — terminal output and formatting
 - ElevenLabs Python SDK — Scribe realtime (WebSocket) + batch transcription
-- LangChain — RAG querying and notes generation (model-agnostic, provider swappable via .env)
+- pywhispercpp — local whisper.cpp transcription (no cloud)
+- LangChain — RAG querying and notes generation (model-agnostic, provider swappable)
+- Ollama (via langchain-ollama) — local LLM and embeddings
 - sounddevice — mic capture
-- FAISS or ChromaDB — local vector store for RAG
+- FAISS — local vector store for RAG
 
 ## .env Keys
 
 ```
-ELEVENLABS_API_KEY=...       # already present
-LLM_PROVIDER=anthropic       # or openai — controls which LangChain provider is used
-ANTHROPIC_API_KEY=...        # add whichever provider you set above
-# OPENAI_API_KEY=...
+ELEVENLABS_API_KEY=...          # required for cloud transcription
+LLM_PROVIDER=anthropic          # anthropic, openai, gemini, openrouter, ollama
+ANTHROPIC_API_KEY=...           # whichever provider you set above
+OPENAI_API_KEY=...              # also used for embeddings (not needed with ollama)
+
+# Local-first (fully private):
+TRANSCRIPTION_BACKEND=local     # use whisper.cpp instead of ElevenLabs
+WHISPER_MODEL=small.en          # tiny.en, base.en, small.en, medium.en, large-v3, large-v3-turbo
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
 ## Strict Instructions

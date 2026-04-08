@@ -25,14 +25,15 @@ def get_embeddings():
     """Get embeddings model based on configured provider."""
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
 
-    if provider == "openai":
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings()
-    else:
-        # Default to OpenAI embeddings even with Anthropic LLM
-        # since Anthropic doesn't have embeddings API
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings()
+    if provider == "ollama":
+        from langchain_ollama import OllamaEmbeddings
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        embed_model = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+        return OllamaEmbeddings(model=embed_model, base_url=base_url)
+
+    # All cloud providers use OpenAI embeddings (Anthropic has no embeddings API)
+    from langchain_openai import OpenAIEmbeddings
+    return OpenAIEmbeddings()
 
 
 def get_llm():
@@ -53,6 +54,10 @@ def get_llm():
             openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
         )
+    elif provider == "ollama":
+        from langchain_ollama import ChatOllama
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        return ChatOllama(model=model or "llama3.2:3b", base_url=base_url)
     else:  # anthropic
         from langchain_anthropic import ChatAnthropic
         kwargs = {}

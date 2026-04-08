@@ -214,8 +214,12 @@ class TestHelpCommands:
 
     def test_each_provider_has_models(self):
         for key, info in MODEL_REGISTRY.items():
-            assert info["models"], f"{key} has no models"
-            assert info["env_key"], f"{key} has no env_key"
+            # ollama models are fetched dynamically at runtime, not stored statically
+            if key != "ollama":
+                assert info["models"], f"{key} has no models"
+            # ollama requires no API key (env_key=None)
+            if info["env_key"] is not None:
+                assert info["env_key"], f"{key} has no env_key"
 
 
 # ---------------------------------------------------------------------------
@@ -561,8 +565,10 @@ class TestMainRouting:
 
     def test_set_model_direct_valid(self, monkeypatch, tmp_path):
         config_file = tmp_path / "settings.json"
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         with patch("openmic.app.CONFIG_FILE", config_file), \
              patch("openmic.app.CONFIG_DIR", tmp_path), \
+             patch("openmic.app._update_env_file"), \
              patch("openmic.app._bootstrap", return_value={}):
             from openmic.app import _run_set_model
             _run_set_model(["anthropic", "claude-sonnet-4-6"])
