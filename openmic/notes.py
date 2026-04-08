@@ -6,7 +6,6 @@ from typing import Optional
 
 import yaml
 from langchain_core.prompts import PromptTemplate
-from langchain_classic.chains import LLMChain
 
 from openmic.rag import get_llm
 from openmic.storage import get_latest_transcript, save_notes, NOTES_DIR
@@ -111,9 +110,9 @@ def generate_meeting_notes(
     )
 
     llm = get_llm()
-    chain = LLMChain(llm=llm, prompt=prompt)
+    chain = prompt | llm
 
-    notes_content = chain.run(transcript=transcript_content)
+    notes_content = chain.invoke({"transcript": transcript_content}).content
 
     # Add header with formatted title
     stem = transcript_path.stem
