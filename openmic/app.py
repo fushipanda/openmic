@@ -776,13 +776,20 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     Ctrl+C stops recording and triggers batch transcription.
     Returns the saved transcript path, or None on failure.
     """
+    import time
     from rich.live import Live
+    from rich.table import Table
     from rich.text import Text as RichText
 
     lines: list[str] = []
     partial_holder: list[str] = [""]
-    committed_queue: list[str] = []
+    committed_queue: list[tuple[str, str]] = []  # (text, elapsed)
     _dirty: list[bool] = [False]
+    _start_time: list[float] = [0.0]
+
+    def _elapsed() -> str:
+        secs = int(time.monotonic() - _start_time[0])
+        return f"{secs // 60}:{secs % 60:02d}"
 
     usage = ctx.usage if ctx else UsageTracker()
     verbose = ctx.verbose if ctx else False
@@ -798,7 +805,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     def on_committed(text: str) -> None:
         partial_holder[0] = ""
         lines.append(text)
-        committed_queue.append(text)
+        committed_queue.append((text, _elapsed()))
         _dirty[0] = True
 
     def on_error(msg: str) -> None:
@@ -824,19 +831,27 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
 
     wav_path = recorder.start()
     await transcriber.connect()
+    _start_time[0] = time.monotonic()
 
     session_info = f" [{session_name}]" if session_name else ""
     console.print()
     console.print(f"[bold #ff4757]◉ RECORDING{session_info}[/]  [dim]Ctrl+C to stop[/]")
     console.print()
 
+    def _make_chunk_row(text: str, ts: str) -> Table:
+        row = Table.grid(expand=True)
+        row.add_column(ratio=1)
+        row.add_column(width=6, justify="right")
+        row.add_row(RichText(text), RichText(ts, style="dim"))
+        return row
+
     with Live(RichText(""), console=console, refresh_per_second=8, transient=False) as live:
         try:
             while True:
                 await asyncio.sleep(0.1)
                 while committed_queue:
-                    text = committed_queue.pop(0)
-                    live.console.print(text)
+                    text, ts = committed_queue.pop(0)
+                    live.console.print(_make_chunk_row(text, ts))
                     live.console.print()
                 if _dirty[0]:
                     partial = partial_holder[0]
