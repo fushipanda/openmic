@@ -1217,11 +1217,11 @@ async def repl_loop(ctx: ReplContext) -> None:
         lines = []
         for i, (cmd, desc) in enumerate(matches[:8]):
             if i == idx:
-                lines.append(("class:completion-menu.completion.current",   f"  {cmd:<22}"))
-                lines.append(("class:completion-menu.meta.completion.current", f"  {desc}\n"))
+                lines.append(("class:completion-menu.completion.current",     f"   {cmd:<22}"))
+                lines.append(("class:completion-menu.meta.completion.current", f"   {desc}\n"))
             else:
-                lines.append(("class:completion-menu.completion",            f"  {cmd:<22}"))
-                lines.append(("class:completion-menu.meta.completion",        f"  {desc}\n"))
+                lines.append(("class:completion-menu.completion",              f"   {cmd:<22}"))
+                lines.append(("class:completion-menu.meta.completion",          f"   {desc}\n"))
         return lines
 
     def _sep_text():
