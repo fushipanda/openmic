@@ -173,14 +173,41 @@ class TestLocalBatchTranscriber:
         assert len(result.words) == 1
         assert result.words[0].text == "valid text"
 
-    def test_parse_diarized_result_delegates_to_batch_transcriber(self):
-        """Smoke-test that the delegation to BatchTranscriber works."""
-        from openmic.transcribe import BatchTranscriber
-        mock_result = MagicMock()
-        mock_result.words = []
-        with patch.object(BatchTranscriber, "parse_diarized_result", return_value=[]) as mock_m:
-            LocalBatchTranscriber.parse_diarized_result(mock_result)
-            mock_m.assert_called_once_with(mock_result)
+    def test_parse_diarized_result_groups_same_speaker(self):
+        """Consecutive words from the same speaker are merged into one segment."""
+        result = MagicMock()
+        result.words = [
+            FakeSegment("Hello", t0=0, t1=50),
+            FakeSegment("world", t0=50, t1=100),
+        ]
+        for w in result.words:
+            w.speaker_id = "Speaker"
+            w.start = w.t0 / 100.0
+            w.end   = w.t1 / 100.0
+
+        segments = LocalBatchTranscriber.parse_diarized_result(result)
+        assert len(segments) == 1
+        assert segments[0]["speaker"] == "Speaker"
+        assert "Hello" in segments[0]["text"]
+        assert "world" in segments[0]["text"]
+
+    def test_parse_diarized_result_splits_on_speaker_change(self):
+        """Words from different speakers produce separate segments."""
+        result = MagicMock()
+        w1 = FakeSegment("Hi", t0=0, t1=50); w1.speaker_id = "A"; w1.start = 0.0; w1.end = 0.5
+        w2 = FakeSegment("Hey", t0=50, t1=100); w2.speaker_id = "B"; w2.start = 0.5; w2.end = 1.0
+        result.words = [w1, w2]
+
+        segments = LocalBatchTranscriber.parse_diarized_result(result)
+        assert len(segments) == 2
+        assert segments[0]["speaker"] == "A"
+        assert segments[1]["speaker"] == "B"
+
+    def test_parse_diarized_result_empty_words(self):
+        """Empty word list produces empty segments."""
+        from types import SimpleNamespace
+        result = SimpleNamespace(words=[])  # no .text attribute — avoids fallback branch
+        assert LocalBatchTranscriber.parse_diarized_result(result) == []
 
 
 # ---------------------------------------------------------------------------

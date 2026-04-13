@@ -303,12 +303,60 @@ class LocalBatchTranscriber:
 
     @staticmethod
     def parse_diarized_result(result) -> list[dict]:
-        from openmic.transcribe import BatchTranscriber
-        return BatchTranscriber.parse_diarized_result(result)
+        """Parse a transcription result into speaker-labeled segments.
+
+        Iterates result.words (each with speaker_id, text, start, end attributes),
+        groups consecutive words by speaker, and returns a list of segment dicts.
+        All local whisper segments currently carry speaker_id="Speaker".
+        """
+        segments = []
+
+        if hasattr(result, "words") and result.words:
+            current_speaker = None
+            current_text    = []
+            current_start   = None
+
+            for word in result.words:
+                speaker = getattr(word, "speaker_id", None) or "Speaker"
+                text    = getattr(word, "text", "")
+                start   = getattr(word, "start", 0)
+                end     = getattr(word, "end", 0)
+
+                if speaker != current_speaker:
+                    if current_text:
+                        segments.append({
+                            "speaker": current_speaker,
+                            "text":    " ".join(current_text),
+                            "start":   current_start,
+                            "end":     end,
+                        })
+                    current_speaker = speaker
+                    current_text    = [text]
+                    current_start   = start
+                else:
+                    current_text.append(text)
+
+            if current_text:
+                segments.append({
+                    "speaker": current_speaker,
+                    "text":    " ".join(current_text),
+                    "start":   current_start,
+                    "end":     getattr(result.words[-1], "end", 0) if result.words else 0,
+                })
+
+        elif hasattr(result, "text"):
+            segments.append({
+                "speaker": "Speaker",
+                "text":    result.text,
+                "start":   0,
+                "end":     0,
+            })
+
+        return segments
 
 
 class _Word:
-    """Minimal word-like object matching ElevenLabs result structure."""
+    """Minimal word-like object for transcription results."""
     def __init__(self, text: str, start: float, end: float, speaker_id: str):
         self.text = text
         self.start = start
