@@ -169,6 +169,7 @@ HELP_COMMANDS = [
     ("/notes",           "Generate notes (with template selection)"),
     ("/regen",           "Regenerate notes using the saved template"),
     ("/model",           "Select LLM provider and model"),
+    ("/transcribe",      "Select Whisper model size"),
     ("/name <name>",     "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose",         "Toggle debug output"),
@@ -1000,6 +1001,17 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             ctx.rag._qa_chain = None
             label = MODEL_REGISTRY[provider]["label"]
             console.print(f"[dim]Model set to {label}: {model}[/]")
+        return True
+
+    if cmd == "/transcribe":
+        model_id = pick_whisper_model()
+        if model_id:
+            os.environ["WHISPER_MODEL"] = model_id
+            _update_env_file("WHISPER_MODEL", model_id)
+            config = _load_config()
+            config["whisper_model"] = model_id
+            _save_config(config)
+            console.print(f"[dim]Whisper model set to {model_id} (takes effect on next recording)[/]")
         return True
 
     # --- Misc ---
