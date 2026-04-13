@@ -4,8 +4,8 @@ import json
 import os
 from pathlib import Path
 
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_classic.chains import (
     create_history_aware_retriever,
@@ -15,7 +15,7 @@ from langchain_classic.chains.combine_documents import create_stuff_documents_ch
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
-from openmic.storage import TRANSCRIPTS_DIR, format_transcript_title
+from openmic.session import SESSIONS_DIR, session_to_text, list_sessions, get_session_meta
 
 INDEX_DIR = Path.home() / ".config" / "openmic" / "faiss_index"
 MANIFEST_FILE = INDEX_DIR / "manifest.json"
@@ -66,6 +66,16 @@ def get_llm():
         return ChatAnthropic(model=model or "claude-3-5-sonnet-20241022", **kwargs)
 
 
+def _session_display_name(session_path: Path) -> str:
+    """Return a human-readable display name for a session."""
+    try:
+        meta = get_session_meta(session_path)
+        name = meta.get("name") or session_path.stem
+    except Exception:
+        name = session_path.stem
+    return name.replace("_", " ").strip()
+
+
 class TranscriptRAG:
     """RAG system for querying meeting transcripts."""
 
@@ -89,14 +99,14 @@ class TranscriptRAG:
         MANIFEST_FILE.write_text(json.dumps(manifest, indent=2))
 
     def _build_manifest(self) -> dict:
-        """Build a manifest from the current transcripts directory."""
-        if not TRANSCRIPTS_DIR.exists():
-            return {"files": {}, "transcripts_dir": str(TRANSCRIPTS_DIR)}
+        """Build a manifest from the current sessions directory."""
+        if not SESSIONS_DIR.exists():
+            return {"files": {}, "sessions_dir": str(SESSIONS_DIR)}
         files = {}
-        for f in sorted(TRANSCRIPTS_DIR.glob("*.md")):
+        for f in sorted(SESSIONS_DIR.glob("*.jsonl")):
             stat = f.stat()
             files[f.name] = {"mtime": stat.st_mtime, "size": stat.st_size}
-        return {"files": files, "transcripts_dir": str(TRANSCRIPTS_DIR)}
+        return {"files": files, "sessions_dir": str(SESSIONS_DIR)}
 
     def _detect_changes(self, manifest: dict) -> tuple[list[Path], list[str]]:
         """Compare disk files vs manifest.
@@ -108,15 +118,13 @@ class TranscriptRAG:
         new_files = []
         deleted = []
 
-        if not TRANSCRIPTS_DIR.exists():
-            # All previously indexed files are effectively deleted
+        if not SESSIONS_DIR.exists():
             return [], list(old_files.keys())
 
         current = {}
-        for f in TRANSCRIPTS_DIR.glob("*.md"):
+        for f in SESSIONS_DIR.glob("*.jsonl"):
             current[f.name] = f
 
-        # Find new or modified files
         for name, path in current.items():
             if name not in old_files:
                 new_files.append(path)
@@ -126,31 +134,34 @@ class TranscriptRAG:
                 if stat.st_mtime != old.get("mtime") or stat.st_size != old.get("size"):
                     new_files.append(path)
 
-        # Find deleted files
         for name in old_files:
             if name not in current:
                 deleted.append(name)
 
         return new_files, deleted
 
-    def _load_documents(self, paths: list[Path] | None = None) -> list:
-        """Load transcript documents, optionally from specific paths."""
-        if paths is not None:
-            docs = []
-            for p in paths:
-                loader = TextLoader(str(p))
-                docs.extend(loader.load())
-            return docs
+    def _load_documents(self, paths: list[Path] | None = None) -> list[Document]:
+        """Load session documents as LangChain Documents.
 
-        if not TRANSCRIPTS_DIR.exists():
+        Each session JSONL becomes one Document whose page_content is the
+        concatenated transcript text from all recordings in that session.
+        """
+        if paths is not None:
+            target = paths
+        elif SESSIONS_DIR.exists():
+            target = list(SESSIONS_DIR.glob("*.jsonl"))
+        else:
             return []
 
-        loader = DirectoryLoader(
-            str(TRANSCRIPTS_DIR),
-            glob="*.md",
-            loader_cls=TextLoader,
-        )
-        return loader.load()
+        docs = []
+        for p in target:
+            text = session_to_text(p)
+            if text.strip():
+                docs.append(Document(
+                    page_content=text,
+                    metadata={"source": str(p), "session": p.stem},
+                ))
+        return docs
 
     def _split_documents(self, documents: list) -> list:
         """Split documents into chunks."""
@@ -161,7 +172,7 @@ class TranscriptRAG:
         return text_splitter.split_documents(documents)
 
     def _build_vectorstore(self, documents: list | None = None) -> FAISS | None:
-        """Build the vector store from documents (or all transcripts if None)."""
+        """Build the vector store from documents (or all sessions if None)."""
         if documents is None:
             documents = self._load_documents()
         if not documents:
@@ -176,8 +187,8 @@ class TranscriptRAG:
         manifest = self._load_manifest()
         index_exists = (INDEX_DIR / "index.faiss").exists()
 
-        # If transcripts_dir changed, force full rebuild
-        if manifest.get("transcripts_dir") != str(TRANSCRIPTS_DIR):
+        # If sessions_dir changed, force full rebuild
+        if manifest.get("sessions_dir") != str(SESSIONS_DIR):
             index_exists = False
             manifest = {}
 
@@ -191,7 +202,6 @@ class TranscriptRAG:
                     str(INDEX_DIR), embeddings, allow_dangerous_deserialization=True
                 )
             except Exception:
-                # Corrupted index — fall through to full rebuild
                 store = None
                 manifest = {}
                 index_exists = False
@@ -203,21 +213,16 @@ class TranscriptRAG:
             )
 
             if deleted or has_modified:
-                # Deletions or modifications require full rebuild
                 store = self._build_vectorstore()
             elif new_files:
-                # Only additions — embed just new files and merge
                 new_docs = self._load_documents(new_files)
                 if new_docs:
                     new_store = self._build_vectorstore(new_docs)
                     if new_store:
                         store.merge_from(new_store)
-            # else: no changes — use loaded index as-is
         else:
-            # No existing index — full build
             store = self._build_vectorstore()
 
-        # Persist
         if store is not None:
             INDEX_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
             store.save_local(str(INDEX_DIR))
@@ -236,7 +241,6 @@ class TranscriptRAG:
             search_kwargs={"k": 8, "fetch_k": 20, "lambda_mult": 0.7},
         )
 
-        # Step 1: History-aware retriever — reformulates follow-up questions
         contextualize_prompt = ChatPromptTemplate.from_messages([
             ("system",
              "Given a chat history and the latest user question which might "
@@ -252,7 +256,6 @@ class TranscriptRAG:
             llm, retriever, contextualize_prompt
         )
 
-        # Step 2: QA chain
         qa_prompt = ChatPromptTemplate.from_messages([
             ("system",
              "You are a helpful assistant answering questions about meeting transcripts.\n\n"
@@ -262,17 +265,16 @@ class TranscriptRAG:
              "3. If the context is insufficient, say \"I couldn't find that specifically —\" "
              "then describe what related information IS available, and suggest rephrasing.\n"
              "4. Never say just \"I don't know.\" Always offer next steps.\n"
-             "5. Be specific about which transcript/date the information comes from.\n\n"
+             "5. Be specific about which session the information comes from.\n\n"
              "{context}"),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}"),
         ])
         question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-
         return create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
     def refresh(self) -> None:
-        """Refresh the vector store with latest transcripts."""
+        """Refresh the vector store with latest sessions."""
         self._vectorstore = self._load_or_build_vectorstore()
         self._qa_chain = self._build_chain()
 
@@ -281,19 +283,16 @@ class TranscriptRAG:
         self._chat_history = []
 
     def query(self, question: str) -> dict:
-        """Query the transcripts with a question.
-
-        Args:
-            question: The question to answer
+        """Query across all sessions with a question.
 
         Returns:
-            Dict with 'answer' (str) and 'sources' (list of human-readable titles)
+            Dict with 'answer' (str) and 'sources' (list of session display names)
         """
         if self._vectorstore is None:
             self.refresh()
 
         if self._qa_chain is None:
-            return {"answer": "No transcripts available to query.", "sources": []}
+            return {"answer": "No sessions available to query.", "sources": []}
 
         result = self._qa_chain.invoke({
             "input": question,
@@ -301,40 +300,39 @@ class TranscriptRAG:
         })
         answer = result.get("answer", "Unable to generate answer.")
 
-        # Extract unique source filenames and convert to readable titles
         sources = []
         seen = set()
         for doc in result.get("context", []):
             source_path = doc.metadata.get("source", "")
             if source_path and source_path not in seen:
                 seen.add(source_path)
-                stem = Path(source_path).stem
-                ts = stem[:16]
-                name = stem[17:] if len(stem) > 16 else None
-                sources.append(format_transcript_title(ts, name))
+                sources.append(_session_display_name(Path(source_path)))
 
-        # Append to chat history
         self._chat_history.append(HumanMessage(content=question))
         self._chat_history.append(AIMessage(content=answer))
 
         return {"answer": answer, "sources": sources}
 
-    def query_file(self, question: str, transcript_path: Path) -> str:
-        """Query a specific transcript file.
+    def query_session(self, question: str, session_path: Path) -> str:
+        """Query a single session JSONL file.
+
+        Builds an in-memory FAISS from the session's transcript text and
+        queries it directly without affecting the global vector store or
+        chat history.
 
         Args:
-            question: The question to answer
-            transcript_path: Path to the specific transcript file
+            question: The question to answer.
+            session_path: Path to the session JSONL file.
 
         Returns:
-            The answer from the LLM based on the transcript content
+            The answer string from the LLM.
         """
-        loader = TextLoader(str(transcript_path))
-        documents = loader.load()
-        if not documents:
-            return "Transcript is empty."
+        text = session_to_text(session_path)
+        if not text.strip():
+            return "This session has no transcript content yet."
 
-        splits = self._split_documents(documents)
+        doc = Document(page_content=text, metadata={"source": str(session_path)})
+        splits = self._split_documents([doc])
         embeddings = get_embeddings()
         vectorstore = FAISS.from_documents(splits, embeddings)
         llm = get_llm()
@@ -347,8 +345,7 @@ class TranscriptRAG:
              "2. If the context is partial, share what you found and note what's missing.\n"
              "3. If the context is insufficient, say \"I couldn't find that specifically —\" "
              "then describe what related information IS available, and suggest rephrasing.\n"
-             "4. Never say just \"I don't know.\" Always offer next steps.\n"
-             "5. Be specific about which transcript/date the information comes from.\n\n"
+             "4. Never say just \"I don't know.\" Always offer next steps.\n\n"
              "{context}"),
             ("human", "{input}"),
         ])
@@ -358,6 +355,5 @@ class TranscriptRAG:
             search_kwargs={"k": 8, "fetch_k": 20, "lambda_mult": 0.7},
         )
         chain = create_retrieval_chain(retriever, question_answer_chain)
-
         result = chain.invoke({"input": question})
         return result.get("answer", "Unable to generate answer.")
