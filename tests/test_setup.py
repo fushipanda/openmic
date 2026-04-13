@@ -24,34 +24,34 @@ class TestGetRequiredKeys:
     def test_anthropic_keys(self):
         keys = _get_required_keys("anthropic")
         env_keys = [k for k, _ in keys]
-        assert "ELEVENLABS_API_KEY" in env_keys
+        assert "ELEVENLABS_API_KEY" not in env_keys  # transcription is local
         assert "OPENAI_API_KEY" in env_keys
         assert "ANTHROPIC_API_KEY" in env_keys
-        assert len(keys) == 3
+        assert len(keys) == 2
 
     def test_openai_keys(self):
         keys = _get_required_keys("openai")
         env_keys = [k for k, _ in keys]
-        assert "ELEVENLABS_API_KEY" in env_keys
+        assert "ELEVENLABS_API_KEY" not in env_keys
         assert "OPENAI_API_KEY" in env_keys
         assert "ANTHROPIC_API_KEY" not in env_keys
-        assert len(keys) == 2
+        assert len(keys) == 1
 
     def test_gemini_keys(self):
         keys = _get_required_keys("gemini")
         env_keys = [k for k, _ in keys]
-        assert "ELEVENLABS_API_KEY" in env_keys
+        assert "ELEVENLABS_API_KEY" not in env_keys
         assert "OPENAI_API_KEY" in env_keys
         assert "GEMINI_API_KEY" in env_keys
-        assert len(keys) == 3
+        assert len(keys) == 2
 
     def test_openrouter_keys(self):
         keys = _get_required_keys("openrouter")
         env_keys = [k for k, _ in keys]
-        assert "ELEVENLABS_API_KEY" in env_keys
+        assert "ELEVENLABS_API_KEY" not in env_keys
         assert "OPENAI_API_KEY" in env_keys
         assert "OPENROUTER_API_KEY" in env_keys
-        assert len(keys) == 3
+        assert len(keys) == 2
 
     def test_all_keys_have_labels(self):
         for provider in ["anthropic", "openai", "gemini", "openrouter"]:
@@ -144,11 +144,11 @@ class TestKeysSkippedWhenPresent:
 
     def test_existing_key_skipped(self):
         """Keys already in os.environ should be auto-collected."""
-        with patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test-key-123"}):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key-123"}):
             keys = _get_required_keys("openai")
             # The function returns what's required — the wizard skips
             # keys present in env during _prompt_api_keys()
-            assert ("ELEVENLABS_API_KEY", "ElevenLabs API key (transcription)") in keys
+            assert any(k == "OPENAI_API_KEY" for k, _ in keys)
 
 
 class TestPromptProvider:
@@ -187,7 +187,7 @@ class TestSaveSetup:
     @patch("openmic.setup._save_config")
     @patch("openmic.setup._load_config", return_value={})
     def test_saves_provider_and_keys(self, mock_load, mock_save, mock_env):
-        keys = {"ELEVENLABS_API_KEY": "el-key", "ANTHROPIC_API_KEY": "ant-key"}
+        keys = {"OPENAI_API_KEY": "oai-key", "ANTHROPIC_API_KEY": "ant-key"}
         _save_setup("anthropic", keys)
 
         saved_config = mock_save.call_args[0][0]
@@ -198,7 +198,7 @@ class TestSaveSetup:
         # Should write each key + LLM_PROVIDER to .env
         env_calls = [c[0] for c in mock_env.call_args_list]
         env_keys_written = [k for k, _ in env_calls]
-        assert "ELEVENLABS_API_KEY" in env_keys_written
+        assert "OPENAI_API_KEY" in env_keys_written
         assert "ANTHROPIC_API_KEY" in env_keys_written
         assert "LLM_PROVIDER" in env_keys_written
 

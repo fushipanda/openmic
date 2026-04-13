@@ -365,7 +365,7 @@ class _Word:
 
 
 class LocalResult:
-    """Minimal result object matching ElevenLabs transcription result."""
+    """Transcription result with a word list and full text."""
     def __init__(self, words: list[_Word]):
         self.words = words
         self.text = " ".join(w.text for w in words)
