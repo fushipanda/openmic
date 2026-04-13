@@ -148,6 +148,14 @@ from openmic.storage import (
     list_recordings,
     delete_all_recordings,
 )
+from openmic.session import (
+    create_session,
+    append_transcript as session_append_transcript,
+    append_notes as session_append_notes,
+    list_sessions,
+    read_session,
+    get_session_meta,
+)
 from openmic.rag import TranscriptRAG
 from openmic.notes import generate_meeting_notes, get_existing_notes
 
@@ -159,12 +167,14 @@ BANNER = """\
  ██████  ██      ███████ ██   ████ ██      ██ ██  ██████"""
 
 HELP_COMMANDS = [
-    ("/start [name]",    "Start recording (optionally with session name)"),
+    ("/start [name]",    "Start a new recording session"),
+    ("/recording [name]","Alias for /start"),
     ("/stop",            "Stop recording and run batch transcription"),
     ("/pause",           "Pause recording"),
     ("/resume",          "Resume a paused recording"),
-    ("/history",         "List saved transcripts"),
-    ("/transcript <n>",  "View transcript by number or name"),
+    ("/sessions",        "Browse sessions and set the active session"),
+    ("/history",         "Alias for /sessions"),
+    ("/transcript <n>",  "View a session by number or name"),
     ("/query <question>","Ask a question across all transcripts"),
     ("/notes",           "Generate notes (with template selection)"),
     ("/regen",           "Regenerate notes using the saved template"),
@@ -234,6 +244,7 @@ class ReplContext:
     rag: TranscriptRAG
     usage: UsageTracker = field(default_factory=UsageTracker)
     latest_transcript_path: Path | None = None
+    active_session_path: Path | None = None
     verbose: bool = False
     chatting: bool = False
 
@@ -405,6 +416,55 @@ def pick_transcript(transcripts: list[Path]) -> Path | None:
             rows.append({"kind": "item", "primary": path.stem, "secondary": "", "value": path, "current": False})
 
     console.print("[dim]  * = notes not yet generated[/]")
+    try:
+        return _arrow_select(rows)
+    except KeyboardInterrupt:
+        return None
+
+
+def pick_session(sessions: list[Path], active: Path | None = None) -> Path | None:
+    """Arrow-key session picker. Returns selected session path or None."""
+    if not sessions:
+        console.print("[dim]No sessions found.[/]")
+        return None
+
+    rows: list[dict] = [{"kind": "header", "text": "Sessions"}]
+    for path in sessions:
+        try:
+            meta = get_session_meta(path)
+            name = meta.get("name", path.stem).replace("_", " ")
+            created_str = meta.get("created", "")
+            data = read_session(path)
+            n_recordings = len(data["transcripts"])
+            has_notes = len(data["notes"]) > 0
+
+            try:
+                dt = datetime.fromisoformat(created_str)
+                date_str = dt.strftime("%-d %b %Y")
+            except ValueError:
+                date_str = ""
+
+            indicator = "✓" if has_notes else "*"
+            rec_label = f"{n_recordings} recording{'s' if n_recordings != 1 else ''}"
+            primary = f"{indicator} {name}"
+            secondary = f"{date_str}  {rec_label}"
+            is_active = active is not None and path == active
+            if is_active:
+                primary = f"→ {name}"
+        except Exception:
+            primary = path.stem
+            secondary = ""
+            is_active = False
+
+        rows.append({
+            "kind": "item",
+            "primary": primary,
+            "secondary": secondary,
+            "value": path,
+            "current": is_active,
+        })
+
+    console.print("[dim]  ✓ = has notes  * = no notes yet  → = active session[/]")
     try:
         return _arrow_select(rows)
     except KeyboardInterrupt:
@@ -627,18 +687,18 @@ async def _run_query_on_path(question: str, path: Path, ctx: ReplContext) -> Non
 
 
 async def _run_query_all(question: str, ctx: ReplContext) -> None:
-    """Run RAG query across all transcripts."""
-    transcripts = list_transcripts()
-    if not transcripts:
-        console.print("[dim]No transcripts available. Use /start to record a meeting.[/]")
+    """Run RAG query across all sessions."""
+    sessions = list_sessions()
+    if not sessions:
+        console.print("[dim]No sessions available. Use /start to record a meeting.[/]")
         return
 
     if not ctx.chatting:
         ctx.chatting = True
         ctx.rag.clear_chat_history()
 
-    n     = len(transcripts)
-    label = f"Searching {n} transcript{'s' if n != 1 else ''}"
+    n     = len(sessions)
+    label = f"Searching {n} session{'s' if n != 1 else ''}"
     try:
         result = await _with_spinner(label, lambda: ctx.rag.query(question))
         ctx.usage.add_llm_call()
@@ -660,69 +720,106 @@ async def _run_query_all(question: str, ctx: ReplContext) -> None:
 # Notes
 # ---------------------------------------------------------------------------
 
-async def _generate_notes_for_path(
-    path: Path, template_id: str = "default", force_regen: bool = False, ctx: ReplContext | None = None
+async def _generate_notes_for_session(
+    session_path: Path,
+    template_id: str = "default",
+    force_regen: bool = False,
+    ctx: ReplContext | None = None,
 ) -> None:
-    """Generate (or load cached) meeting notes for a transcript."""
-    if force_regen:
-        notes_path = NOTES_DIR / (path.stem + "_notes.md")
-        if notes_path.exists():
-            notes_path.unlink()
+    """Generate (or show cached) notes for a session and append to its JSONL."""
+    import tempfile
 
-    existing = get_existing_notes(path)
-    will_use_cache = existing is not None and existing[2] == template_id
+    data = read_session(session_path)
+    existing_notes = data["notes"]
 
-    label = "Loading saved notes" if will_use_cache else f"Generating notes ({template_id})"
+    if not force_regen and existing_notes:
+        # Show the most recent notes entry from the session
+        latest = existing_notes[-1]
+        content = latest.get("content", "")
+        saved_template = latest.get("template", "default")
+        console.print()
+        console.print(RichMarkdown(content))
+        console.print()
+        console.print(f"[dim]Notes from session: {session_path.name}[/]")
+        return
+
+    # Build a temporary markdown file from the session transcript text so
+    # generate_meeting_notes() can load and summarise it via LangChain.
+    from openmic.session import session_to_text
+    text = session_to_text(session_path)
+    if not text.strip():
+        console.print("[dim]Session has no transcript content yet.[/]")
+        return
+
+    meta = get_session_meta(session_path)
+    session_name = meta.get("name", session_path.stem).replace("_", " ")
+    header = f"# {session_name}\n\n"
+
     try:
-        result = await _with_spinner(label, lambda: generate_meeting_notes(path, template_id))
-        notes_content, notes_path, used_cache = result
-        if not used_cache and ctx:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(header + text)
+            tmp_path = Path(tmp.name)
+
+        label = f"Generating notes ({template_id})"
+        result = await _with_spinner(label, lambda: generate_meeting_notes(tmp_path, template_id))
+        notes_content, _, _ = result
+        if ctx:
             ctx.usage.add_llm_call()
+
+        # Append notes into the session JSONL (replaces the temp-file-based save)
+        session_append_notes(session_path, notes_content, template_id)
+
         console.print()
         console.print(RichMarkdown(notes_content))
         console.print()
-        console.print(f"[dim]Saved to: {notes_path}[/]")
+        console.print(f"[dim]Notes saved to session: {session_path.name}[/]")
     except Exception as e:
         console.print(f"[red]Error generating notes: {e}[/]")
+    finally:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
 
 
 async def _do_notes(ctx: ReplContext, force_regen: bool = False) -> None:
-    """Handle /notes and /regen — pick transcript, pick template, generate."""
-    transcripts = list_transcripts()
-    if not transcripts:
-        console.print("[dim]No transcripts available.[/]")
-        return
-
-    if len(transcripts) == 1:
-        path = transcripts[0]
+    """Handle /notes and /regen — use active session or pick one."""
+    if ctx.active_session_path and ctx.active_session_path.exists():
+        session_path = ctx.active_session_path
     else:
-        console.print()
-        path = pick_transcript(transcripts)
-        if path is None:
+        sessions = list_sessions()
+        if not sessions:
+            console.print("[dim]No sessions available.[/]")
             return
-
-    if force_regen:
-        # For /regen: check if existing notes have a saved template
-        existing = get_existing_notes(path)
-        if existing is not None:
-            _, _, saved_template = existing
-            template_id = saved_template or "default"
+        if len(sessions) == 1:
+            session_path = sessions[0]
         else:
             console.print()
+            session_path = pick_session(sessions, active=ctx.active_session_path)
+            if session_path is None:
+                return
+
+    if force_regen:
+        data = read_session(session_path)
+        existing = data["notes"]
+        template_id = existing[-1].get("template", "default") if existing else "default"
+        if not existing:
+            console.print()
             template_id = pick_template()
-        await _generate_notes_for_path(path, template_id, force_regen=True, ctx=ctx)
+        await _generate_notes_for_session(session_path, template_id, force_regen=True, ctx=ctx)
         return
 
-    # For /notes: show cached if present, otherwise pick template
-    existing = get_existing_notes(path)
-    if existing is not None:
-        _, _, saved_template = existing
-        template_id = saved_template or "default"
-        await _generate_notes_for_path(path, template_id, ctx=ctx)
+    # /notes: show cached if present, else pick template and generate
+    data = read_session(session_path)
+    if data["notes"]:
+        template_id = data["notes"][-1].get("template", "default")
+        await _generate_notes_for_session(session_path, template_id, ctx=ctx)
     else:
         console.print()
         template_id = pick_template()
-        await _generate_notes_for_path(path, template_id, ctx=ctx)
+        await _generate_notes_for_session(session_path, template_id, ctx=ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -837,8 +934,8 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         result = await loop.run_in_executor(
             None, lambda: BatchTranscriberCls().transcribe_file(str(returned_wav))
         )
+        duration_s = returned_wav.stat().st_size / (16000 * 2)  # int16 mono 16kHz
         segments = BatchTranscriberCls.parse_diarized_result(result)
-        transcript_path = save_transcript(segments, session_name)
 
         _SPEAKER_COLORS = [
             "#00d4aa",  # teal
@@ -866,19 +963,30 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             prev_speaker = speaker
 
         console.print()
-        console.print(f"[dim]Saved to: {transcript_path.name}[/]")
 
-        # Offer to name the session if none was given
-        if not session_name:
-            try:
-                name = input("Name this session (Enter to skip): ").strip()
-                if name:
-                    transcript_path = rename_transcript(transcript_path, name.replace(" ", "_"))
-                    console.print(f"[dim]Renamed to: {transcript_path.name}[/]")
-            except KeyboardInterrupt:
-                pass
+        # Session save: append to active session or create a new one
+        active = ctx.active_session_path if ctx else None
+        if active and active.exists():
+            session_append_transcript(active, segments, duration_s)
+            meta = get_session_meta(active)
+            console.print(f"[dim]Appended to session: {meta.get('name', active.stem)}[/]")
+            return active
+        else:
+            # Prompt for a name if none supplied
+            if not session_name:
+                try:
+                    name = input("Name this session (Enter to skip): ").strip()
+                    session_name = name if name else None
+                except KeyboardInterrupt:
+                    pass
 
-        return transcript_path
+            session_path = create_session(session_name)
+            session_append_transcript(session_path, segments, duration_s)
+            if ctx:
+                ctx.active_session_path = session_path
+            meta = get_session_meta(session_path)
+            console.print(f"[dim]Session created: {meta.get('name', session_path.stem)}[/]")
+            return session_path
 
     except Exception as e:
         console.print(f"[red]Transcription error: {e}[/]")
@@ -898,12 +1006,22 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         return True
 
     # --- Recording ---
-    if cmd == "/start" or cmd.startswith("/start "):
-        session_name = cmd[7:].strip().replace(" ", "_") if cmd.startswith("/start ") else None
+    if cmd in ("/start", "/recording") or cmd.startswith("/start ") or cmd.startswith("/recording "):
+        # Extract optional name argument from either /start or /recording
+        if cmd.startswith("/start "):
+            session_name = cmd[7:].strip().replace(" ", "_") or None
+        elif cmd.startswith("/recording "):
+            session_name = cmd[11:].strip().replace(" ", "_") or None
+        else:
+            session_name = None
         path = await recording_mode(session_name, ctx)
         if path:
             ctx.latest_transcript_path = path
             ctx.chatting = False
+            # Show active session reminder after recording
+            if ctx.active_session_path:
+                meta = get_session_meta(ctx.active_session_path)
+                console.print(f"[dim]Active session: {meta.get('name', ctx.active_session_path.stem)}[/]")
         return True
 
     if cmd in ("/stop", "/pause", "/resume"):
@@ -945,43 +1063,48 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             console.print("[dim]No recent transcript to rename.[/]")
         return True
 
-    if cmd in ("/transcripts", "/history", "/transcript"):
-        transcripts = list_transcripts()
-        if not transcripts:
-            console.print("[dim]No transcripts found.[/]")
+    if cmd in ("/sessions", "/history", "/transcripts", "/transcript"):
+        sessions = list_sessions()
+        if not sessions:
+            console.print("[dim]No sessions found. Use /start to record a meeting.[/]")
             return True
-        path = pick_transcript(transcripts)
-        if path:
-            content = path.read_text()
-            console.print()
-            console.print(RichMarkdown(content))
-            console.print(f"[dim]— {path}[/]")
+        selected = pick_session(sessions, active=ctx.active_session_path)
+        if selected:
+            ctx.active_session_path = selected
+            meta = get_session_meta(selected)
+            data = read_session(selected)
+            n = len(data["transcripts"])
+            name = meta.get("name", selected.stem)
+            console.print(f"[dim]Active session: {name} ({n} recording{'s' if n != 1 else ''})[/]")
         return True
 
-    if cmd.startswith("/transcript ") or cmd.startswith("/history "):
+    if cmd.startswith("/transcript ") or cmd.startswith("/history ") or cmd.startswith("/sessions "):
         prefix_len = len(cmd.split()[0]) + 1
         identifier = cmd[prefix_len:].strip()
         if not identifier:
-            console.print("[dim]Usage: /transcript <name or number>[/]")
+            console.print("[dim]Usage: /sessions <name or number>[/]")
             return True
-        transcripts = list_transcripts()
+        sessions = list_sessions()
         target = None
         try:
             idx = int(identifier) - 1
-            if 0 <= idx < len(transcripts):
-                target = transcripts[idx]
+            if 0 <= idx < len(sessions):
+                target = sessions[idx]
         except ValueError:
             search = identifier.lower().replace(" ", "_")
-            for p in transcripts:
+            for p in sessions:
                 if search in p.stem.lower():
                     target = p
                     break
         if target:
-            console.print()
-            console.print(RichMarkdown(target.read_text()))
-            console.print(f"[dim]— {target}[/]")
+            ctx.active_session_path = target
+            meta = get_session_meta(target)
+            data = read_session(target)
+            n = len(data["transcripts"])
+            name = meta.get("name", target.stem)
+            console.print(f"[dim]Active session: {name} ({n} recording{'s' if n != 1 else ''})[/]")
         else:
-            console.print(f"[dim]Transcript not found: {identifier}[/]")
+            console.print(f"[dim]Session not found: {identifier}[/]")
         return True
 
     # --- Model ---

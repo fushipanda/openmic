@@ -356,14 +356,14 @@ class TestHandleCommand:
 
     def test_query_calls_rag(self):
         ctx = _make_ctx()
-        with patch("openmic.app.list_transcripts", return_value=[Path("/fake/t.md")]):
+        with patch("openmic.app.list_sessions", return_value=[Path("/fake/session.jsonl")]):
             asyncio.run(handle_command("/query test question", ctx))
         ctx.rag.query.assert_called_once()
 
     def test_query_clears_chat_history(self):
         ctx = _make_ctx()
         ctx.chatting = True
-        with patch("openmic.app.list_transcripts", return_value=[Path("/fake/t.md")]):
+        with patch("openmic.app.list_sessions", return_value=[Path("/fake/session.jsonl")]):
             asyncio.run(handle_command("/query test", ctx))
         ctx.rag.clear_chat_history.assert_called()
 
@@ -407,12 +407,12 @@ class TestHandleCommand:
         out = capsys.readouterr().out
         assert "No recordings" in out
 
-    def test_transcripts_no_transcripts(self, capsys):
+    def test_sessions_no_sessions(self, capsys):
         ctx = _make_ctx()
-        with patch("openmic.app.list_transcripts", return_value=[]):
-            asyncio.run(handle_command("/transcripts", ctx))
+        with patch("openmic.app.list_sessions", return_value=[]):
+            asyncio.run(handle_command("/sessions", ctx))
         out = capsys.readouterr().out
-        assert "No transcripts" in out
+        assert "No sessions" in out
 
     def test_stop_when_not_recording(self, capsys):
         ctx = _make_ctx()
@@ -422,7 +422,7 @@ class TestHandleCommand:
 
     def test_bare_text_triggers_query(self):
         ctx = _make_ctx()
-        with patch("openmic.app.list_transcripts", return_value=[Path("/fake/t.md")]):
+        with patch("openmic.app.list_sessions", return_value=[Path("/fake/session.jsonl")]):
             asyncio.run(handle_command("what was discussed", ctx))
         ctx.rag.query.assert_called_once()
 
