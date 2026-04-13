@@ -16,6 +16,14 @@ _WHISPER_PARAMS = {
     "no_speech_thold": 0.3,
 }
 
+# webrtcvad frame constants — must be exactly 10, 20, or 30ms at 16kHz
+_VAD_FRAME_MS      = 30
+_VAD_FRAME_SAMPLES = 16000 * _VAD_FRAME_MS // 1000   # 480 samples
+_VAD_FRAME_BYTES   = _VAD_FRAME_SAMPLES * 2           # 960 bytes (int16)
+_BYTES_PER_SAMPLE  = 2
+_MAX_SPEECH_BYTES  = 16000 * _BYTES_PER_SAMPLE * 30  # 30s safety ceiling
+_MAX_IDLE_BYTES    = 16000 * _BYTES_PER_SAMPLE * 35  # 35s before idle trim
+
 
 def _get_whisper_model():
     """Load whisper.cpp model via pywhispercpp. Auto-downloads if needed."""
@@ -23,6 +31,19 @@ def _get_whisper_model():
 
     model_size = os.environ.get("WHISPER_MODEL", "small.en")
     return Model(model_size, n_threads=os.cpu_count() or 4, redirect_whispercpp_logs_to=os.devnull)
+
+
+def _try_load_webrtcvad(aggressiveness: int = 2):
+    """Lazy import of webrtcvad. Returns a configured Vad instance or None.
+
+    aggressiveness: 0–3 (0 = least aggressive, 3 = most aggressive silence filtering).
+    Returns None if webrtcvad-wheels is not installed — caller falls back to fixed-interval loop.
+    """
+    try:
+        import webrtcvad
+        return webrtcvad.Vad(aggressiveness)
+    except Exception:
+        return None
 
 
 class LocalRealtimeTranscriber:
@@ -65,11 +86,26 @@ class LocalRealtimeTranscriber:
         return self._model
 
     async def connect(self) -> None:
-        """Start the local transcription loop."""
+        """Start the local transcription loop, using VAD if webrtcvad is available."""
         self._running = True
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._get_model)
-        self._transcribe_task = asyncio.create_task(self._transcribe_loop())
+
+        vad_enabled = os.environ.get("WHISPER_VAD_ENABLED", "true").lower() != "false"
+
+        if vad_enabled:
+            aggressiveness = int(os.environ.get("WHISPER_VAD_AGGRESSIVENESS", "2"))
+            vad = _try_load_webrtcvad(aggressiveness)
+        else:
+            vad = None
+
+        if vad is not None:
+            silence_ms = int(os.environ.get("WHISPER_VAD_SILENCE_MS", "600"))
+            self._transcribe_task = asyncio.create_task(
+                self._vad_transcribe_loop(vad, silence_ms)
+            )
+        else:
+            self._transcribe_task = asyncio.create_task(self._transcribe_loop())
 
     async def disconnect(self) -> None:
         """Stop the transcription loop."""
@@ -131,6 +167,98 @@ class LocalRealtimeTranscriber:
         if buffer:
             try:
                 text = self._transcribe_audio(bytes(buffer))
+                if text and text.strip() and self.on_committed:
+                    self.on_committed(text.strip())
+            except Exception:
+                pass
+
+    async def _vad_transcribe_loop(self, vad, silence_ms: int) -> None:
+        """Transcription loop gated by webrtcvad speech-boundary detection.
+
+        Accumulates audio in a rolling buffer and processes it in 30ms VAD frames.
+        Flushes a speech segment to Whisper once silence_ms of consecutive silence
+        is detected after speech, rather than waiting for a fixed time interval.
+        """
+        silence_threshold = max(1, silence_ms // _VAD_FRAME_MS)
+
+        rolling_buffer    = bytearray()
+        bytes_processed   = 0
+        speech_start_byte = None   # None = currently in silence
+        silence_frames    = 0
+
+        while self._running:
+            try:
+                # Drain audio queue into rolling buffer
+                try:
+                    while True:
+                        rolling_buffer.extend(self._audio_queue.get_nowait())
+                except queue.Empty:
+                    pass
+
+                # Process all complete 30ms VAD frames available
+                while (len(rolling_buffer) - bytes_processed) >= _VAD_FRAME_BYTES:
+                    frame = rolling_buffer[bytes_processed : bytes_processed + _VAD_FRAME_BYTES]
+                    bytes_processed += _VAD_FRAME_BYTES
+
+                    is_speech = vad.is_speech(bytes(frame), sample_rate=self.SAMPLE_RATE)
+
+                    if is_speech:
+                        silence_frames = 0
+                        if speech_start_byte is None:
+                            speech_start_byte = bytes_processed - _VAD_FRAME_BYTES
+                    else:
+                        if speech_start_byte is not None:
+                            silence_frames += 1
+                            if silence_frames >= silence_threshold:
+                                # Speech ended — extract segment without trailing silence
+                                speech_end = bytes_processed - (silence_frames * _VAD_FRAME_BYTES)
+                                segment = bytes(rolling_buffer[speech_start_byte : speech_end])
+                                speech_start_byte = None
+                                silence_frames    = 0
+                                del rolling_buffer[:bytes_processed]
+                                bytes_processed = 0
+
+                                if segment:
+                                    loop = asyncio.get_event_loop()
+                                    text = await loop.run_in_executor(
+                                        None, self._transcribe_audio, segment
+                                    )
+                                    if text and text.strip() and self.on_committed:
+                                        self.on_committed(text.strip())
+                                continue  # buffer trimmed — restart inner while
+
+                # 30s safety ceiling: force-flush very long unbroken speech
+                if speech_start_byte is not None:
+                    if (bytes_processed - speech_start_byte) >= _MAX_SPEECH_BYTES:
+                        segment = bytes(rolling_buffer[speech_start_byte : bytes_processed])
+                        speech_start_byte = bytes_processed
+                        silence_frames    = 0
+                        loop = asyncio.get_event_loop()
+                        text = await loop.run_in_executor(None, self._transcribe_audio, segment)
+                        if text and text.strip() and self.on_committed:
+                            self.on_committed(text.strip())
+
+                # Idle trim: prevent unbounded buffer growth during silence
+                if speech_start_byte is None and len(rolling_buffer) > _MAX_IDLE_BYTES:
+                    keep = 16000 * _BYTES_PER_SAMPLE * 5  # retain 5s tail
+                    trim = len(rolling_buffer) - keep
+                    del rolling_buffer[:trim]
+                    bytes_processed = max(0, bytes_processed - trim)
+
+                await asyncio.sleep(0.05)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if self.on_error:
+                    self.on_error(f"VAD transcription error: {e}")
+                await asyncio.sleep(0.5)
+
+        # Shutdown flush — transcribe any remaining buffered speech
+        if speech_start_byte is not None and bytes_processed > speech_start_byte:
+            try:
+                segment = bytes(rolling_buffer[speech_start_byte : bytes_processed])
+                text = self._transcribe_audio(segment)
                 if text and text.strip() and self.on_committed:
                     self.on_committed(text.strip())
             except Exception:
