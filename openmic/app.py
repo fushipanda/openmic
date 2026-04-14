@@ -1610,8 +1610,7 @@ OPENMIC_STYLE = {
     # Separator lines and prompt character
     "separator":    f"{TEAL_DIM}",
     "prompt":       f"{TEAL} bold",
-    "session-label": f"{TEAL_DIM}",
-    "session-arrow": f"{TEAL} bold",
+    "session-label": f"bg:{TEAL} #000000 bold",
 
     # Ghost-text auto-suggestion (appears inline after cursor)
     "auto-suggestion": GHOST_TEXT,
@@ -1694,7 +1693,7 @@ async def repl_loop(ctx: ReplContext) -> None:
     from prompt_toolkit.key_binding.bindings.emacs import load_emacs_bindings
     from prompt_toolkit.key_binding.bindings.basic import load_basic_bindings
     from prompt_toolkit.layout import Layout
-    from prompt_toolkit.layout.containers import HSplit, Window, ConditionalContainer
+    from prompt_toolkit.layout.containers import HSplit, VSplit, Window, ConditionalContainer, WindowAlign
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.layout.processors import BeforeInput, AppendAutoSuggestion
@@ -1751,18 +1750,22 @@ async def repl_loop(ctx: ReplContext) -> None:
         except Exception:
             return []
 
-    def _prompt_prefix() -> list:
+    def _session_right_label() -> list:
         name = ctx.active_session_name
-        if name:
-            clean = name.replace("_", " ").strip()
-            if len(clean) > 28:
-                clean = clean[:27] + "…"
-            return [
-                ("class:session-label", clean),
-                ("class:session-label", "  ·  "),
-                ("class:session-arrow", "›  "),
-            ]
-        return [("class:prompt", "›  ")]
+        if not name:
+            return []
+        clean = name.replace("_", " ").strip()
+        if len(clean) > 28:
+            clean = clean[:27] + "…"
+        return [("class:session-label", f" {clean} ")]
+
+    def _session_label_width() -> Dimension:
+        name = ctx.active_session_name
+        if not name:
+            return Dimension(preferred=0, max=0, min=0)
+        clean = name.replace("_", " ").strip()
+        w = min(len(clean), 28) + 3  # leading/trailing space + possible ellipsis
+        return Dimension(preferred=w, max=w, min=0)
 
     def _slash_matches() -> list[tuple[str, str]]:
         text = buf.document.text_before_cursor
@@ -1880,18 +1883,26 @@ async def repl_loop(ctx: ReplContext) -> None:
 
     layout = Layout(
         HSplit([
-            Window(
-                content=BufferControl(
-                    buffer=buf,
-                    input_processors=[
-                        BeforeInput(_prompt_prefix),
-                        AppendAutoSuggestion(),
-                    ],
-                    include_default_input_processors=False,
+            VSplit([
+                Window(
+                    content=BufferControl(
+                        buffer=buf,
+                        input_processors=[
+                            BeforeInput("›  ", style="class:prompt"),
+                            AppendAutoSuggestion(),
+                        ],
+                        include_default_input_processors=False,
+                    ),
+                    height=1,
+                    wrap_lines=False,
                 ),
-                height=1,
-                wrap_lines=False,
-            ),
+                Window(
+                    content=FormattedTextControl(_session_right_label, focusable=False),
+                    height=1,
+                    width=_session_label_width,
+                    align=WindowAlign.RIGHT,
+                ),
+            ]),
             ConditionalContainer(
                 Window(
                     content=FormattedTextControl(_completions_text, focusable=False),
