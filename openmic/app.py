@@ -152,11 +152,14 @@ from openmic.session import (
     create_session,
     append_transcript as session_append_transcript,
     append_notes as session_append_notes,
+    append_title_update,
+    append_rename,
+    display_title,
     list_sessions,
     read_session,
     get_session_meta,
 )
-from openmic.rag import TranscriptRAG
+from openmic.rag import TranscriptRAG, generate_session_title
 from openmic.notes import generate_meeting_notes, get_existing_notes
 
 BANNER = """\
@@ -180,6 +183,7 @@ HELP_COMMANDS = [
     ("/regen",           "Regenerate notes using the saved template"),
     ("/model",           "Select LLM provider and model"),
     ("/transcribe",      "Select Whisper model size"),
+    ("/rename <title>",  "Set a custom display title for the active session"),
     ("/name <name>",     "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
     ("/verbose",         "Toggle debug output"),
@@ -431,10 +435,9 @@ def pick_session(sessions: list[Path], active: Path | None = None) -> Path | Non
     rows: list[dict] = [{"kind": "header", "text": "Sessions"}]
     for path in sessions:
         try:
-            meta = get_session_meta(path)
-            name = meta.get("name", path.stem).replace("_", " ")
-            created_str = meta.get("created", "")
             data = read_session(path)
+            name = display_title(data).replace("_", " ")
+            created_str = data["meta"].get("created", "")
             n_recordings = len(data["transcripts"])
             has_notes = len(data["notes"]) > 0
 
@@ -823,6 +826,32 @@ async def _do_notes(ctx: ReplContext, force_regen: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Session title generation helpers
+# ---------------------------------------------------------------------------
+
+def _current_model_name() -> str:
+    """Return a readable model identifier based on current env vars."""
+    provider = os.environ.get("LLM_PROVIDER", "anthropic")
+    model = os.environ.get("LLM_MODEL", "")
+    return f"{provider}/{model}" if model else provider
+
+
+async def _background_title_gen(session_path: Path) -> None:
+    """Generate and persist an autoTitle for a session silently in the background.
+
+    Uses a thread executor so the LLM call doesn't block the event loop.
+    Any failure is silently swallowed — title is optional metadata.
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        title = await loop.run_in_executor(None, generate_session_title, session_path)
+        if title:
+            append_title_update(session_path, title, _current_model_name())
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Recording mode
 # ---------------------------------------------------------------------------
 
@@ -968,8 +997,11 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         active = ctx.active_session_path if ctx else None
         if active and active.exists():
             session_append_transcript(active, segments, duration_s)
-            meta = get_session_meta(active)
-            console.print(f"[dim]Appended to session: {meta.get('name', active.stem)}[/]")
+            data = read_session(active)
+            console.print(f"[dim]Appended to session: {display_title(data).replace('_', ' ')}[/]")
+            # Fire background title generation if no autoTitle yet
+            if data.get("autoTitle") is None:
+                asyncio.create_task(_background_title_gen(active))
             return active
         else:
             # Prompt for a name if none supplied
@@ -984,8 +1016,10 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             session_append_transcript(session_path, segments, duration_s)
             if ctx:
                 ctx.active_session_path = session_path
-            meta = get_session_meta(session_path)
-            console.print(f"[dim]Session created: {meta.get('name', session_path.stem)}[/]")
+            data = read_session(session_path)
+            console.print(f"[dim]Session created: {display_title(data).replace('_', ' ')}[/]")
+            # Fire background title generation
+            asyncio.create_task(_background_title_gen(session_path))
             return session_path
 
     except Exception as e:
@@ -1135,6 +1169,18 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             config["whisper_model"] = model_id
             _save_config(config)
             console.print(f"[dim]Whisper model set to {model_id} (takes effect on next recording)[/]")
+        return True
+
+    # --- Rename active session ---
+    if cmd.startswith("/rename"):
+        new_title = cmd[7:].strip()
+        if not new_title:
+            console.print("[dim]Usage: /rename New Title[/]")
+        elif not ctx.active_session_path:
+            console.print("[dim]No active session. Select one with /sessions first.[/]")
+        else:
+            append_rename(ctx.active_session_path, new_title)
+            console.print(f"[dim]Session renamed to: {new_title}[/]")
         return True
 
     # --- Misc ---

@@ -590,3 +590,48 @@ class TestMainRouting:
             _run_set_model(["anthropic", "not-a-real-model"])
         out = capsys.readouterr().out
         assert "Unknown model" in out
+
+
+# ---------------------------------------------------------------------------
+# /rename command
+# ---------------------------------------------------------------------------
+
+class TestRenameCommand:
+    """Tests for the /rename command handler."""
+
+    @pytest.fixture
+    def ctx_with_session(self, tmp_path, monkeypatch):
+        """ReplContext with an active session in a temp sessions dir."""
+        import openmic.session as sess_module
+        sessions = tmp_path / "sessions"
+        monkeypatch.setattr(sess_module, "SESSIONS_DIR", sessions)
+
+        from openmic.session import create_session
+        session_path = create_session("test-session")
+
+        mock_rag = MagicMock()
+        ctx = ReplContext(rag=mock_rag, active_session_path=session_path)
+        return ctx, session_path
+
+    def test_rename_sets_custom_title(self, ctx_with_session, monkeypatch):
+        ctx, session_path = ctx_with_session
+        result = asyncio.run(handle_command("/rename My Custom Title", ctx))
+        assert result is True
+        from openmic.session import read_session
+        data = read_session(session_path)
+        assert data["customTitle"] == "My Custom Title"
+
+    def test_rename_no_active_session(self, capsys):
+        mock_rag = MagicMock()
+        ctx = ReplContext(rag=mock_rag, active_session_path=None)
+        result = asyncio.run(handle_command("/rename Something", ctx))
+        assert result is True
+        out = capsys.readouterr().out
+        assert "No active session" in out
+
+    def test_rename_no_arg(self, ctx_with_session, capsys):
+        ctx, _ = ctx_with_session
+        result = asyncio.run(handle_command("/rename", ctx))
+        assert result is True
+        out = capsys.readouterr().out
+        assert "Usage" in out or "rename" in out.lower()
