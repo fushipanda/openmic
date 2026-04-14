@@ -4,7 +4,7 @@
 [![Built with Claude Code](https://img.shields.io/badge/built_with-Claude_Code-blueviolet.svg)](https://github.com/anthropics/claude-code)
 [![Tests: 278/278](https://img.shields.io/badge/tests-278%2F278-brightgreen.svg)](#development)
 
-> A privacy-first CLI for meeting transcription. Runs entirely on your machine — no cloud API keys required for transcription.
+> A privacy-first CLI for capturing and structuring spoken thought. Start a session, speak freely — OpenMic turns what you say into searchable, AI-ready data, entirely on your machine.
 
 [Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development)
 
@@ -12,14 +12,16 @@
 
 ## What It Does
 
-OpenMic is a terminal-based meeting transcription tool that:
+Most tools that process your speech send it to the cloud. OpenMic doesn't. Everything runs locally — transcription, storage, querying — so your ideas stay yours.
 
-- **Records audio** from your microphone during meetings
-- **Streams live transcription** locally via faster-whisper with voice activity detection
-- **Saves transcripts** as markdown files with timestamps
-- **Answers questions** about past meetings using RAG (retrieval-augmented generation)
-- **Generates meeting notes** with structured summaries, action items, and decisions
-- **Audio never leaves your machine** — transcription is fully local, no cloud calls
+Start a session for anything: a meeting, a brainstorm, a voice journal, a technical walkthrough. OpenMic captures what you say, structures it, and makes it immediately queryable by any AI system you point at it.
+
+- **Captures spoken sessions** — meetings, ideas, notes, anything you say
+- **Transcribes locally** via faster-whisper with GPU acceleration and voice activity detection
+- **Stores sessions as structured markdown** — timestamped, named, and browsable
+- **Answers questions** about any session using RAG (retrieval-augmented generation)
+- **Generates structured notes** — summaries, decisions, and action items on demand
+- **No audio leaves your machine** — transcription is fully local, no cloud calls required
 
 ---
 
@@ -113,18 +115,18 @@ openmic setup        # re-run the setup wizard
 ### Quick Example Workflow
 
 ```bash
-# Start recording a meeting
-> /start standup
+# Start a session — a meeting, a brainstorm, a voice note
+> /start product-ideas
 
-# [speak for a few minutes... live transcript appears as you talk]
+# [speak freely... live transcript appears as you talk]
 
 # Stop and save
 > /stop
 
-# Ask a question about the meeting
-> /query What action items were mentioned?
+# Ask a question about what you said
+> /query What were the strongest ideas from that session?
 
-# Generate structured meeting notes
+# Generate structured notes
 > /notes
 ```
 
@@ -166,9 +168,9 @@ openmic setup        # re-run the setup wizard
 
 ## Features
 
-### Live Transcription — Local, Private
+### Local Speech Capture
 
-Audio is transcribed locally by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2 backend). No audio is sent to any server.
+Audio is transcribed locally by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2 backend). No audio is sent to any server — not for transcription, not for storage, not for querying.
 
 GPU acceleration is used automatically when CUDA is available — on an RTX-class GPU, inference runs several times faster than CPU. If CUDA libraries aren't present, it falls back to CPU automatically.
 
@@ -314,9 +316,11 @@ OpenMic has **278 passing tests** covering:
 
 I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) — giving it a feature list and bugs to fix in [CLAUDE.md](./CLAUDE.md), then iterating: Claude would implement a todo, I'd review it, and once tested it got pushed. The whole thing — from an empty directory to the current state (architecture, 278 tests, this README) — came out of that process.
 
-The pivot to fully local transcription came from wanting a tool I'd actually trust with sensitive meeting audio. faster-whisper + webrtcvad gives sub-3-second latency with zero cloud calls, and GPU acceleration via CTranslate2 keeps inference fast without any model quality trade-off.
+The driving idea was simple: spoken thought is the fastest way most people produce ideas, but it evaporates unless captured. OpenMic turns your voice into structured, queryable data — locally, so there's no question of where it ends up or who can access it.
 
-I use this daily for recording meetings. Inspired in part by TUIs I've worked with recently, primarily [OpenCode](https://github.com/anomalyco/opencode/).
+faster-whisper + webrtcvad gives sub-3-second latency with zero cloud calls, and GPU acceleration via CTranslate2 keeps inference fast without any model quality trade-off. The resulting transcripts are plain markdown — easy to feed into any AI system, embed, or search.
+
+I use this daily. Inspired in part by TUIs I've worked with recently, primarily [OpenCode](https://github.com/anomalyco/opencode/).
 
 ---
 
