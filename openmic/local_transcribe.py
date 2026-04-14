@@ -23,7 +23,13 @@ def _get_whisper_model():
     model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
     device = os.environ.get("WHISPER_DEVICE", "auto")
     compute_type = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
-    return WhisperModel(model_size, device=device, compute_type=compute_type)
+    try:
+        return WhisperModel(model_size, device=device, compute_type=compute_type)
+    except Exception as e:
+        if device != "cpu" and ("cuda" in str(e).lower() or "cublas" in str(e).lower() or "libcu" in str(e).lower()):
+            # CUDA runtime missing — fall back to CPU automatically
+            return WhisperModel(model_size, device="cpu", compute_type="int8")
+        raise
 
 
 def _try_load_webrtcvad(aggressiveness: int = 2):
