@@ -1,4 +1,4 @@
-"""Integration test for RAG pipeline with mocked embeddings."""
+"""Integration tests for RAG pipeline with mocked embeddings."""
 
 import json
 from pathlib import Path
@@ -9,25 +9,39 @@ import pytest
 from openmic.rag import TranscriptRAG, get_llm, get_embeddings, INDEX_DIR, MANIFEST_FILE
 
 
-@pytest.fixture
-def transcript_dir(tmp_path, monkeypatch):
-    """Create a temp transcripts dir with sample data."""
-    transcripts = tmp_path / "transcripts"
-    transcripts.mkdir()
-    monkeypatch.setattr("openmic.rag.TRANSCRIPTS_DIR", transcripts)
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
-    # Write sample transcripts
-    (transcripts / "2025-06-15_14-30.md").write_text(
-        "# Meeting Transcript - 2025-06-15_14-30\n\n"
-        "**Speaker 1:** We need to migrate the database to PostgreSQL by end of Q3.\n\n"
-        "**Speaker 2:** I'll handle the schema migration. The deadline is September 30th.\n\n"
+@pytest.fixture
+def session_dir(tmp_path, monkeypatch):
+    """Create a temp sessions dir with sample JSONL sessions."""
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    # Patch both the rag module reference and the session module reference
+    monkeypatch.setattr("openmic.rag.SESSIONS_DIR", sessions)
+    monkeypatch.setattr("openmic.session.SESSIONS_DIR", sessions)
+
+    # Write sample sessions directly as JSONL (avoids import side-effects)
+    s1 = sessions / "db-migration.jsonl"
+    s1.write_text(
+        json.dumps({"type": "meta", "id": "1", "name": "db-migration", "created": "2025-06-15T14:30:00"}) + "\n" +
+        json.dumps({"type": "transcript", "id": "2", "timestamp": "2025-06-15T14:30:00", "duration_s": 600.0,
+                    "segments": [
+                        {"speaker": "Speaker 1", "text": "We need to migrate the database to PostgreSQL by end of Q3.", "start": 0.0, "end": 5.0},
+                        {"speaker": "Speaker 2", "text": "I'll handle the schema migration. The deadline is September 30th.", "start": 5.1, "end": 10.0},
+                    ]}) + "\n"
     )
-    (transcripts / "2025-06-16_10-00.md").write_text(
-        "# Meeting Transcript - 2025-06-16_10-00\n\n"
-        "**Speaker 1:** The new API endpoint for user profiles is ready for review.\n\n"
-        "**Speaker 2:** Great, I'll review it this afternoon.\n\n"
+    s2 = sessions / "api-review.jsonl"
+    s2.write_text(
+        json.dumps({"type": "meta", "id": "3", "name": "api-review", "created": "2025-06-16T10:00:00"}) + "\n" +
+        json.dumps({"type": "transcript", "id": "4", "timestamp": "2025-06-16T10:00:00", "duration_s": 300.0,
+                    "segments": [
+                        {"speaker": "Speaker 1", "text": "The new API endpoint for user profiles is ready for review.", "start": 0.0, "end": 4.0},
+                        {"speaker": "Speaker 2", "text": "Great, I'll review it this afternoon.", "start": 4.1, "end": 6.0},
+                    ]}) + "\n"
     )
-    return transcripts
+    return sessions
 
 
 @pytest.fixture
@@ -60,9 +74,13 @@ class FakeEmbeddings:
         return vec
 
 
+# ---------------------------------------------------------------------------
+# TranscriptRAG query tests
+# ---------------------------------------------------------------------------
+
 class TestTranscriptRAG:
-    def test_query_returns_answer(self, transcript_dir, index_dir):
-        """Full RAG pipeline: load docs, build vectorstore, query with mocked chain."""
+    def test_query_returns_answer(self, session_dir, index_dir):
+        """Full RAG pipeline: load sessions, build vectorstore, query with mocked chain."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = {"answer": "The deadline is September 30th.", "context": []}
@@ -83,14 +101,14 @@ class TestTranscriptRAG:
             assert result["sources"] == []
             mock_chain.invoke.assert_called_once()
 
-    def test_query_returns_sources(self, transcript_dir, index_dir):
-        """Query returns human-readable source titles from context documents."""
+    def test_query_returns_sources(self, session_dir, index_dir):
+        """Query returns human-readable session names from context documents."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
         mock_doc1 = MagicMock()
-        mock_doc1.metadata = {"source": str(transcript_dir / "2025-06-15_14-30.md")}
+        mock_doc1.metadata = {"source": str(session_dir / "db-migration.jsonl")}
         mock_doc2 = MagicMock()
-        mock_doc2.metadata = {"source": str(transcript_dir / "2025-06-16_10-00.md")}
+        mock_doc2.metadata = {"source": str(session_dir / "api-review.jsonl")}
         mock_chain.invoke.return_value = {
             "answer": "The answer.",
             "context": [mock_doc1, mock_doc2, mock_doc1],  # duplicate
@@ -106,9 +124,10 @@ class TestTranscriptRAG:
             result = rag.query("test?")
             assert result["answer"] == "The answer."
             assert len(result["sources"]) == 2  # deduped
-            assert "Meeting Transcript" in result["sources"][0]
+            # Sources are human-readable session names
+            assert "db migration" in result["sources"][0].lower() or "db-migration" in result["sources"][0].lower()
 
-    def test_query_triggers_refresh(self, transcript_dir, index_dir):
+    def test_query_triggers_refresh(self, session_dir, index_dir):
         """First query auto-refreshes the vectorstore."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
@@ -123,15 +142,15 @@ class TestTranscriptRAG:
             assert rag._vectorstore is None
 
             result = rag.query("test?")
-            # Should have auto-refreshed
             assert rag._vectorstore is not None
             assert result["answer"] == "Answer."
 
-    def test_query_no_transcripts(self, tmp_path, monkeypatch, index_dir):
-        """Query with no transcripts returns informative message."""
-        empty_dir = tmp_path / "transcripts"
+    def test_query_no_sessions(self, tmp_path, monkeypatch, index_dir):
+        """Query with no sessions returns informative message."""
+        empty_dir = tmp_path / "sessions"
         empty_dir.mkdir()
-        monkeypatch.setattr("openmic.rag.TRANSCRIPTS_DIR", empty_dir)
+        monkeypatch.setattr("openmic.rag.SESSIONS_DIR", empty_dir)
+        monkeypatch.setattr("openmic.session.SESSIONS_DIR", empty_dir)
 
         fake_embeddings = FakeEmbeddings()
 
@@ -139,10 +158,10 @@ class TestTranscriptRAG:
              patch("openmic.rag.get_llm"):
             rag = TranscriptRAG()
             result = rag.query("anything")
-            assert result["answer"] == "No transcripts available to query."
+            assert result["answer"] == "No sessions available to query."
             assert result["sources"] == []
 
-    def test_refresh_rebuilds(self, transcript_dir, index_dir):
+    def test_refresh_rebuilds(self, session_dir, index_dir):
         """Calling refresh rebuilds the vectorstore."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
@@ -154,28 +173,30 @@ class TestTranscriptRAG:
 
             rag = TranscriptRAG()
             rag.refresh()
-            first_store = rag._vectorstore
 
-            # Add another transcript
-            (transcript_dir / "2025-07-01_09-00.md").write_text(
-                "# Meeting Transcript\n\n**Speaker 1:** New content.\n\n"
+            # Add another session
+            new_session = session_dir / "new-session.jsonl"
+            new_session.write_text(
+                json.dumps({"type": "meta", "id": "99", "name": "new-session", "created": "2025-07-01T09:00:00"}) + "\n" +
+                json.dumps({"type": "transcript", "id": "100", "timestamp": "2025-07-01T09:00:00", "duration_s": 60.0,
+                            "segments": [{"speaker": "Speaker", "text": "New content.", "start": 0.0, "end": 2.0}]}) + "\n"
             )
             rag.refresh()
-            # New file triggers incremental merge, but store object changes
             assert rag._vectorstore is not None
 
-    def test_nonexistent_transcripts_dir(self, tmp_path, monkeypatch, index_dir):
-        """If transcripts dir doesn't exist, returns empty message."""
-        monkeypatch.setattr("openmic.rag.TRANSCRIPTS_DIR", tmp_path / "nonexistent")
+    def test_nonexistent_sessions_dir(self, tmp_path, monkeypatch, index_dir):
+        """If sessions dir doesn't exist, returns empty message."""
+        monkeypatch.setattr("openmic.rag.SESSIONS_DIR", tmp_path / "nonexistent")
+        monkeypatch.setattr("openmic.session.SESSIONS_DIR", tmp_path / "nonexistent")
 
         with patch("openmic.rag.get_embeddings"), \
              patch("openmic.rag.get_llm"):
             rag = TranscriptRAG()
             result = rag.query("anything")
-            assert result["answer"] == "No transcripts available to query."
+            assert result["answer"] == "No sessions available to query."
             assert result["sources"] == []
 
-    def test_query_missing_answer_key(self, transcript_dir, index_dir):
+    def test_query_missing_answer_key(self, session_dir, index_dir):
         """Query handles missing 'answer' key in chain output."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
@@ -192,8 +213,8 @@ class TestTranscriptRAG:
             assert result["answer"] == "Unable to generate answer."
             assert result["sources"] == []
 
-    def test_vectorstore_built_with_documents(self, transcript_dir, index_dir):
-        """Vectorstore is built from transcript documents."""
+    def test_vectorstore_built_with_documents(self, session_dir, index_dir):
+        """Vectorstore is built from session documents."""
         fake_embeddings = FakeEmbeddings()
 
         with patch("openmic.rag.get_embeddings", return_value=fake_embeddings), \
@@ -203,14 +224,18 @@ class TestTranscriptRAG:
 
             rag = TranscriptRAG()
             docs = rag._load_documents()
-            assert len(docs) == 2  # two transcript files
+            assert len(docs) == 2  # two session files
 
             vs = rag._build_vectorstore(docs)
             assert vs is not None
 
 
+# ---------------------------------------------------------------------------
+# Chat history
+# ---------------------------------------------------------------------------
+
 class TestChatHistory:
-    def test_chat_history_accumulates(self, transcript_dir, index_dir):
+    def test_chat_history_accumulates(self, session_dir, index_dir):
         """Chat history grows with each query."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
@@ -229,11 +254,10 @@ class TestChatHistory:
             rag.query("Follow-up?")
             assert len(rag._chat_history) == 4
 
-            # Verify chat_history was passed to chain
             last_call = mock_chain.invoke.call_args
             assert "chat_history" in last_call[0][0]
 
-    def test_clear_chat_history(self, transcript_dir, index_dir):
+    def test_clear_chat_history(self, session_dir, index_dir):
         """clear_chat_history resets the conversation."""
         fake_embeddings = FakeEmbeddings()
         mock_chain = MagicMock()
@@ -253,11 +277,15 @@ class TestChatHistory:
             assert len(rag._chat_history) == 0
 
 
+# ---------------------------------------------------------------------------
+# Persistent index (manifest, detect changes, incremental update)
+# ---------------------------------------------------------------------------
+
 class TestPersistentIndex:
     def test_manifest_save_and_load(self, index_dir):
         """Manifest can be saved and loaded."""
         rag = TranscriptRAG()
-        manifest = {"files": {"test.md": {"mtime": 123.0, "size": 100}}, "transcripts_dir": "/tmp"}
+        manifest = {"files": {"test.jsonl": {"mtime": 123.0, "size": 100}}, "sessions_dir": "/tmp"}
         rag._save_manifest(manifest)
 
         loaded = rag._load_manifest()
@@ -271,34 +299,32 @@ class TestPersistentIndex:
         rag = TranscriptRAG()
         assert rag._load_manifest() == {}
 
-    def test_detect_changes_new_files(self, transcript_dir, index_dir):
-        """Detects new files not in manifest."""
+    def test_detect_changes_new_files(self, session_dir, index_dir):
+        """Detects new session files not in manifest."""
         rag = TranscriptRAG()
-        manifest = {"files": {}, "transcripts_dir": str(transcript_dir)}
+        manifest = {"files": {}, "sessions_dir": str(session_dir)}
 
         new_files, deleted = rag._detect_changes(manifest)
         assert len(new_files) == 2
         assert len(deleted) == 0
 
-    def test_detect_changes_deleted_files(self, transcript_dir, index_dir):
+    def test_detect_changes_deleted_files(self, session_dir, index_dir):
         """Detects files in manifest that no longer exist on disk."""
         rag = TranscriptRAG()
         manifest = {
             "files": {
-                "2025-06-15_14-30.md": {"mtime": 0, "size": 0},
-                "deleted.md": {"mtime": 0, "size": 0},
+                "db-migration.jsonl": {"mtime": 0, "size": 0},
+                "deleted.jsonl": {"mtime": 0, "size": 0},
             },
-            "transcripts_dir": str(transcript_dir),
+            "sessions_dir": str(session_dir),
         }
 
         new_files, deleted = rag._detect_changes(manifest)
-        assert "deleted.md" in deleted
-        # 2025-06-15_14-30.md has different mtime/size, so it's "modified" (in new_files)
-        # 2025-06-16_10-00.md is truly new
+        assert "deleted.jsonl" in deleted
         new_names = [f.name for f in new_files]
-        assert "2025-06-16_10-00.md" in new_names
+        assert "api-review.jsonl" in new_names  # truly new
 
-    def test_detect_changes_no_changes(self, transcript_dir, index_dir):
+    def test_detect_changes_no_changes(self, session_dir, index_dir):
         """No changes detected when manifest matches disk."""
         rag = TranscriptRAG()
         manifest = rag._build_manifest()
@@ -307,7 +333,7 @@ class TestPersistentIndex:
         assert len(new_files) == 0
         assert len(deleted) == 0
 
-    def test_index_persisted_to_disk(self, transcript_dir, index_dir):
+    def test_index_persisted_to_disk(self, session_dir, index_dir):
         """After refresh, index files are saved to disk."""
         fake_embeddings = FakeEmbeddings()
 
@@ -324,11 +350,11 @@ class TestPersistentIndex:
             assert (index_dir / "manifest.json").exists()
 
             manifest = json.loads((index_dir / "manifest.json").read_text())
-            assert "2025-06-15_14-30.md" in manifest["files"]
-            assert "2025-06-16_10-00.md" in manifest["files"]
+            assert "db-migration.jsonl" in manifest["files"]
+            assert "api-review.jsonl" in manifest["files"]
 
-    def test_incremental_update(self, transcript_dir, index_dir):
-        """Adding a new file only embeds the new file (incremental merge)."""
+    def test_incremental_update(self, session_dir, index_dir):
+        """Adding a new session only embeds the new session (incremental merge)."""
         fake_embeddings = FakeEmbeddings()
         embed_call_count = [0]
         original_embed_docs = fake_embeddings.embed_documents
@@ -348,17 +374,19 @@ class TestPersistentIndex:
             rag.refresh()  # Full build
             first_count = embed_call_count[0]
 
-            # Add a new transcript
-            (transcript_dir / "2025-07-01_09-00.md").write_text(
-                "# Meeting Transcript\n\n**Speaker 1:** New content.\n\n"
+            # Add a new session
+            new_session = session_dir / "new-session.jsonl"
+            new_session.write_text(
+                json.dumps({"type": "meta", "id": "99", "name": "new-session", "created": "2025-07-01T09:00:00"}) + "\n" +
+                json.dumps({"type": "transcript", "id": "100", "timestamp": "2025-07-01T09:00:00", "duration_s": 60.0,
+                            "segments": [{"speaker": "Speaker", "text": "New content.", "start": 0.0, "end": 2.0}]}) + "\n"
             )
 
             embed_call_count[0] = 0
-            rag.refresh()  # Should only embed the new file
-            # The new file is small (1 chunk), so embed count should be much less than full rebuild
+            rag.refresh()  # Should only embed the new session
             assert embed_call_count[0] < first_count
 
-    def test_loaded_index_reused_no_changes(self, transcript_dir, index_dir):
+    def test_loaded_index_reused_no_changes(self, session_dir, index_dir):
         """When nothing changed, loaded index is reused without re-embedding."""
         fake_embeddings = FakeEmbeddings()
         embed_call_count = [0]
@@ -385,6 +413,10 @@ class TestPersistentIndex:
             rag2.refresh()  # Should load from disk, zero embedding calls
             assert embed_call_count[0] == 0
 
+
+# ---------------------------------------------------------------------------
+# LLM / embeddings providers
+# ---------------------------------------------------------------------------
 
 class TestGetLLM:
     def test_anthropic_provider(self, monkeypatch):
@@ -429,3 +461,92 @@ class TestGetEmbeddings:
 
             from langchain_openai import OpenAIEmbeddings
             assert isinstance(emb, OpenAIEmbeddings)
+
+
+class TestGenerateSessionTitle:
+    """Tests for generate_session_title() in openmic/rag.py."""
+
+    @pytest.fixture
+    def session_dir(self, tmp_path, monkeypatch):
+        sessions = tmp_path / "sessions"
+        sessions.mkdir()
+        monkeypatch.setattr("openmic.rag.SESSIONS_DIR", sessions)
+        monkeypatch.setattr("openmic.session.SESSIONS_DIR", sessions)
+        return sessions
+
+    def _write_session(self, sessions_dir: Path, text: str) -> Path:
+        """Write a minimal session JSONL with the given transcript text."""
+        import json as _json
+        from openmic.session import create_session, append_transcript
+        words = text.split()
+        segs = [{"speaker": "Speaker", "text": " ".join(words[i:i+10]), "start": float(i), "end": float(i+1)}
+                for i in range(0, len(words), 10)]
+        path = create_session("test")
+        append_transcript(path, segs, len(words) * 0.5)
+        return path
+
+    def test_skips_below_word_threshold(self, session_dir, monkeypatch):
+        from openmic.rag import generate_session_title
+        path = self._write_session(session_dir, "too short")
+        result = generate_session_title(path, word_threshold=30)
+        assert result is None
+
+    def test_returns_title_from_llm(self, session_dir, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from openmic.rag import generate_session_title
+
+        long_text = " ".join(["word"] * 50)
+        path = self._write_session(session_dir, long_text)
+
+        mock_llm = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = '{"title": "Quarterly roadmap planning"}'
+        mock_llm.invoke.return_value = mock_result
+
+        with patch("openmic.rag.get_llm", return_value=mock_llm):
+            # The chain is prompt | llm — we need to mock the full chain
+            mock_chain = MagicMock()
+            mock_chain.invoke.return_value = mock_result
+            with patch("openmic.rag.ChatPromptTemplate") as mock_pt:
+                mock_pt.from_messages.return_value.__or__ = lambda s, o: mock_chain
+                title = generate_session_title(path, word_threshold=30)
+
+        # Title extracted from JSON response
+        assert title == "Quarterly roadmap planning"
+
+    def test_handles_llm_failure(self, session_dir, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from openmic.rag import generate_session_title
+
+        long_text = " ".join(["word"] * 50)
+        path = self._write_session(session_dir, long_text)
+
+        mock_llm = MagicMock()
+        mock_chain = MagicMock()
+        mock_chain.invoke.side_effect = RuntimeError("LLM unavailable")
+
+        with patch("openmic.rag.get_llm", return_value=mock_llm):
+            with patch("openmic.rag.ChatPromptTemplate") as mock_pt:
+                mock_pt.from_messages.return_value.__or__ = lambda s, o: mock_chain
+                result = generate_session_title(path, word_threshold=30)
+
+        assert result is None  # failure is silent
+
+    def test_handles_bad_json(self, session_dir, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from openmic.rag import generate_session_title
+
+        long_text = " ".join(["word"] * 50)
+        path = self._write_session(session_dir, long_text)
+
+        mock_result = MagicMock()
+        mock_result.content = "not valid json at all"
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = mock_result
+
+        with patch("openmic.rag.get_llm"):
+            with patch("openmic.rag.ChatPromptTemplate") as mock_pt:
+                mock_pt.from_messages.return_value.__or__ = lambda s, o: mock_chain
+                result = generate_session_title(path, word_threshold=30)
+
+        assert result is None

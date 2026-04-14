@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "CLI/TUI meeting transcription tool with live preview, diarization, and RAG querying"
 requires-python = ">=3.12"
 dependencies = [
-    "textual>=0.47.0",
     "sounddevice>=0.4.6",
     "scipy>=1.11.0",
     "elevenlabs>=1.0.0",
@@ -14,12 +13,16 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "websockets>=12.0",
     "pyyaml>=6.0.0",
+    "prompt_toolkit>=3.0.0",
+    "markdown>=3.5.0",
 ]
 
 [project.optional-dependencies]
 anthropic = ["langchain-anthropic>=0.1.0"]
 openai = ["langchain-openai>=0.0.5"]
 gemini = ["langchain-google-genai>=2.0.0"]
+ollama = ["langchain-ollama>=0.3.0"]
+local = ["pywhispercpp>=1.0.0", "webrtcvad-wheels>=2.0.10"]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
 
 [project.scripts]

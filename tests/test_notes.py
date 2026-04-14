@@ -5,8 +5,18 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 import yaml
+from langchain_core.runnables import RunnableLambda
 
 from openmic.notes import generate_meeting_notes, generate_notes_for_latest, get_existing_notes, NOTES_PROMPT
+
+
+def _fake_llm(content: str):
+    """Return a LangChain-compatible Runnable that produces a fake LLM response."""
+    class _Resp:
+        pass
+    resp = _Resp()
+    resp.content = content
+    return RunnableLambda(lambda _: resp)
 
 
 @pytest.fixture
@@ -59,11 +69,7 @@ class TestGenerateMeetingNotes:
             "**Speaker 2:** I'll handle it by September 30th.\n\n"
         )
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = FAKE_NOTES
-
-        with patch("openmic.notes.get_llm") as mock_get_llm, \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+        with patch("openmic.notes.get_llm", return_value=_fake_llm(FAKE_NOTES)):
             content, notes_path, used_cache = generate_meeting_notes(transcript_path)
 
         assert notes_path.exists()
@@ -81,11 +87,7 @@ class TestGenerateMeetingNotes:
         transcript_path = transcripts_dir / "2025-06-15_14-30.md"
         transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "## Agenda\n- Nothing"
-
-        with patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+        with patch("openmic.notes.get_llm", return_value=_fake_llm("## Agenda\n- Nothing")):
             content, _, _ = generate_meeting_notes(transcript_path)
 
         assert "# Meeting Notes" in content
@@ -99,14 +101,20 @@ class TestGenerateMeetingNotes:
         transcript_path = transcripts_dir / "2025-06-15_14-30.md"
         transcript_path.write_text(transcript_text)
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "Notes"
+        received = {}
 
-        with patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+        def _capturing_llm(prompt_value):
+            # prompt_value is a StringPromptValue — the fully-rendered prompt
+            received["text"] = prompt_value.text if hasattr(prompt_value, "text") else str(prompt_value)
+            class _R:
+                content = "Notes"
+            return _R()
+
+        with patch("openmic.notes.get_llm", return_value=RunnableLambda(_capturing_llm)):
             generate_meeting_notes(transcript_path)
 
-        mock_chain.run.assert_called_once_with(transcript=transcript_text)
+        # The transcript content should appear inside the rendered prompt
+        assert transcript_text.strip() in received.get("text", "")
 
     def test_notes_include_yaml_frontmatter(self, storage_dirs):
         """Generated notes include YAML frontmatter with template ID."""
@@ -115,11 +123,7 @@ class TestGenerateMeetingNotes:
         transcript_path = transcripts_dir / "2025-06-15_14-30.md"
         transcript_path.write_text("# Transcript\n\nContent.\n\n")
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "## Notes"
-
-        with patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+        with patch("openmic.notes.get_llm", return_value=_fake_llm("## Notes")):
             content, _, _ = generate_meeting_notes(transcript_path)
 
         assert content.startswith("---\n")
@@ -136,11 +140,7 @@ class TestGenerateMeetingNotes:
         transcript_path = transcripts_dir / "2025-06-15_14-30.md"
         transcript_path.write_text("# Transcript\n\nContent.\n\n")
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "## Concise Notes"
-
-        with patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+        with patch("openmic.notes.get_llm", return_value=_fake_llm("## Concise Notes")):
             content, _, used_cache = generate_meeting_notes(transcript_path, template_id="concise")
 
         assert used_cache is False
@@ -165,12 +165,8 @@ class TestGenerateNotesForLatest:
         latest = transcripts_dir / "2025-12-31_23-59.md"
         latest.write_text("# Latest\n\n**Speaker 1:** Latest content.\n\n")
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "Latest notes"
-
         with patch("openmic.notes.get_latest_transcript", return_value=latest), \
-             patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+             patch("openmic.notes.get_llm", return_value=_fake_llm("Latest notes")):
             result = generate_notes_for_latest()
 
         assert result is not None
@@ -186,12 +182,8 @@ class TestGenerateNotesForLatest:
         latest = transcripts_dir / "2025-12-31_23-59.md"
         latest.write_text("# Latest\n\nContent.\n\n")
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "Technical notes"
-
         with patch("openmic.notes.get_latest_transcript", return_value=latest), \
-             patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+             patch("openmic.notes.get_llm", return_value=_fake_llm("Technical notes")):
             result = generate_notes_for_latest(template_id="technical")
 
         assert result is not None
@@ -215,13 +207,10 @@ class TestNotesCaching:
         notes_path = notes_dir / "2025-06-15_14-30_notes.md"
         notes_path.write_text(cached_content)
 
-        with patch("openmic.notes.get_llm") as mock_llm, \
-             patch("openmic.notes.LLMChain") as mock_chain_cls:
+        with patch("openmic.notes.get_llm") as mock_llm:
             content, path, used_cache = generate_meeting_notes(transcript_path, template_id="default")
 
-        # LLM should NOT be called
         mock_llm.assert_not_called()
-        mock_chain_cls.assert_not_called()
         assert content == cached_content
         assert path == notes_path
         assert used_cache is True
@@ -237,13 +226,10 @@ class TestNotesCaching:
         notes_path = notes_dir / "2025-06-15_14-30_notes.md"
         notes_path.write_text(cached_content)
 
-        with patch("openmic.notes.get_llm") as mock_llm, \
-             patch("openmic.notes.LLMChain") as mock_chain_cls:
+        with patch("openmic.notes.get_llm") as mock_llm:
             content, path, used_cache = generate_meeting_notes(transcript_path, template_id="concise")
 
-        # LLM should NOT be called — caller must handle the overwrite prompt
         mock_llm.assert_not_called()
-        mock_chain_cls.assert_not_called()
         assert used_cache is True
 
     def test_generates_when_no_cache(self, storage_dirs):
@@ -253,15 +239,9 @@ class TestNotesCaching:
         transcript_path = transcripts_dir / "2025-06-15_14-30.md"
         transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
 
-        mock_chain = MagicMock()
-        mock_chain.run.return_value = "Generated notes"
-
-        with patch("openmic.notes.get_llm"), \
-             patch("openmic.notes.LLMChain", return_value=mock_chain):
+        with patch("openmic.notes.get_llm", return_value=_fake_llm("Generated notes")):
             content, path, used_cache = generate_meeting_notes(transcript_path)
 
-        # LLM should be called
-        mock_chain.run.assert_called_once()
         assert "# Meeting Notes" in content
         assert used_cache is False
 

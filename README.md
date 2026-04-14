@@ -2,10 +2,9 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Built with Claude Code](https://img.shields.io/badge/built_with-Claude_Code-blueviolet.svg)](https://github.com/anthropics/claude-code)
-[![Textual](https://img.shields.io/badge/TUI-Textual-FF69B4.svg)](https://textual.textualize.io/)
-[![Tests: 190/190](https://img.shields.io/badge/tests-190%2F190-brightgreen.svg)](#development)
+[![Tests: 212/212](https://img.shields.io/badge/tests-212%2F212-brightgreen.svg)](#development)
 
-> A beautiful CLI/TUI for meeting transcription with live preview, speaker diarization, and RAG-powered querying.
+> A privacy-first CLI for meeting transcription. Runs entirely on your machine — no cloud API keys required for transcription.
 
 [Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development)
 
@@ -16,15 +15,11 @@
 OpenMic is a terminal-based meeting transcription tool that:
 
 - 🎤 **Records audio** from your microphone during meetings
-- ⚡ **Streams live transcription** to your screen in real-time (via ElevenLabs Scribe)
-- 👥 **Identifies speakers** automatically with diarization (Speaker 1, Speaker 2, etc.)
+- ⚡ **Streams live transcription** locally via whisper.cpp + voice activity detection
 - 💾 **Saves transcripts** as markdown files with timestamps
 - 🔍 **Answers questions** about past meetings using RAG (retrieval-augmented generation)
 - 📝 **Generates meeting notes** with structured summaries, action items, and decisions
-- 🎨 **Beautiful TUI** with themes, keyboard shortcuts, and an intuitive interface
-
-![OpenMic Main Interface](./assets/demo_menu.png)
-*OpenMic's clean TUI interface with command input and help menu*
+- 🔒 **Audio never leaves your machine** — transcription is fully local, no cloud calls
 
 ---
 
@@ -36,7 +31,7 @@ OpenMic is a terminal-based meeting transcription tool that:
 curl -fsSL https://raw.githubusercontent.com/fushipanda/openmic/main/install.sh | bash
 ```
 
-This checks for Python 3.12+, installs OpenMic via pipx/uv/pip, and you're ready to go. The first time you run `openmic`, a setup wizard walks you through provider selection and API key configuration.
+This checks for Python 3.12+, installs OpenMic via pipx/uv/pip, and you're ready to go. The first time you run `openmic`, a setup wizard walks you through LLM provider selection and API key configuration.
 
 ### Manual Install
 
@@ -52,35 +47,50 @@ git clone https://github.com/fushipanda/openmic.git
 cd openmic
 python -m venv venv
 source venv/bin/activate
-pip install -e ".[dev,anthropic,openai]"
+pip install -e ".[dev,anthropic,openai,local]"
 openmic setup
 ```
+
+The `local` extra installs `pywhispercpp` (whisper.cpp bindings) and `webrtcvad-wheels` (voice activity detection).
 
 ---
 
 ## Configuration
 
-The setup wizard (`openmic setup`) handles configuration interactively. It will:
+### Transcription (no API key required)
 
-1. Let you choose an LLM provider (Anthropic, OpenAI, Gemini, or OpenRouter)
+Transcription is handled locally via [whisper.cpp](https://github.com/ggerganov/whisper.cpp). The model downloads automatically on first use (~75MB for `small.en`).
+
+```bash
+# In your .env or shell environment
+WHISPER_MODEL=small.en       # tiny.en, base.en, small.en, medium.en, large-v3, large-v3-turbo
+WHISPER_VAD_ENABLED=true     # voice activity detection (default: true)
+WHISPER_VAD_SILENCE_MS=600   # silence duration before flushing a segment (default: 600ms)
+```
+
+### LLM Provider (for /query and /notes)
+
+The setup wizard (`openmic setup`) handles LLM configuration interactively. It will:
+
+1. Let you choose an LLM provider (Anthropic, OpenAI, Gemini, OpenRouter, or Ollama)
 2. Install the required LangChain packages
 3. Prompt for API keys (skips any already set in your environment)
 4. Save everything to `~/.config/openmic/settings.json` and `.env`
 
 You can re-run `openmic setup` at any time to reconfigure.
 
-### API Keys Required
+### API Keys
 
 | Key | Purpose | Required |
 |-----|---------|----------|
-| `ELEVENLABS_API_KEY` | Audio transcription (realtime + batch) | Always |
-| `OPENAI_API_KEY` | Embeddings for RAG search | Always |
+| `OPENAI_API_KEY` | Embeddings for RAG search | If using cloud LLM provider |
 | `ANTHROPIC_API_KEY` | Claude LLM | If using Anthropic |
 | `GEMINI_API_KEY` | Gemini LLM | If using Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter LLM | If using OpenRouter |
 
-> **Why OpenAI API key if using Claude?**
-> Anthropic doesn't provide an embeddings API. OpenMic uses OpenAI embeddings for the RAG search feature (`/query` command), while using Claude (or GPT) for generating answers and notes.
+> **Fully offline**: Set `LLM_PROVIDER=ollama` and no API keys are required at all. Transcription is already local — this makes the LLM local too.
+
+> **Why OpenAI key for embeddings?** Anthropic doesn't provide an embeddings API. OpenMic uses OpenAI embeddings for RAG search (`/query`). This isn't needed with `LLM_PROVIDER=ollama`.
 
 ---
 
@@ -89,7 +99,7 @@ You can re-run `openmic setup` at any time to reconfigure.
 ### Start the Application
 
 ```bash
-openmic              # launch the TUI
+openmic              # launch the CLI
 openmic --version    # show installed version
 openmic update       # self-update to latest release
 openmic setup        # re-run the setup wizard
@@ -101,9 +111,9 @@ openmic setup        # re-run the setup wizard
 # Start recording a meeting
 > /start standup
 
-# [speak for 5 minutes... live transcript appears on screen]
+# [speak for a few minutes... live transcript appears as you talk]
 
-# Stop and save (diarization runs automatically)
+# Stop and save
 > /stop
 
 # Ask a question about the meeting
@@ -120,14 +130,15 @@ openmic setup        # re-run the setup wizard
 | Command | Description |
 |---------|-------------|
 | `/start [name]` | Start recording (optionally with session name) |
-| `/stop [name]` | Stop recording and process with diarization |
+| `/stop [name]` | Stop recording and save transcript |
 | `/pause` | Pause recording (resume with `/start`) |
-| `/history` | Browse saved transcripts in a date-grouped popup |
+| `/history` | Browse saved transcripts in a date-grouped list |
 | `/transcript <n>` | View a specific transcript by number or name |
 | `/query <question>` | Ask a question about a transcript (uses RAG) |
 | `/notes` | Generate structured notes from a transcript |
 | `/name <name>` | Rename the most recent transcript |
-| `/help` | Show help popup with all commands and shortcuts |
+| `/model` | Switch LLM provider or model |
+| `/help` | Show help with all commands and shortcuts |
 | `/verbose` | Toggle debug output |
 | `/version` | Show version and check for updates |
 | `/exit` | Quit the application |
@@ -140,57 +151,44 @@ openmic setup        # re-run the setup wizard
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+R` | Toggle recording / pause |
-| `Ctrl+T` | Cycle through themes (OpenMic, Nord, etc.) |
-| `Ctrl+?` | Show help popup |
-| `Esc` | Return to home screen (when viewing transcript/notes) |
+| `Shift+Tab` | Start recording (from REPL) |
+| `Ctrl+C` | Stop recording / quit application |
 | `Tab` | Autocomplete commands |
-| `Ctrl+C` | Quit application |
+| `↑ / ↓` | Navigate command history / completions |
+| `Esc` | Return to home screen (when viewing transcript/notes) |
 
 ---
 
 ## Features
 
-### 🎤 Live Transcription
-Words appear on screen as you speak via ElevenLabs Scribe WebSocket streaming. Transcription flows naturally with automatic paragraph breaks based on voice activity detection.
+### 🎤 Live Transcription (Local, Private)
 
-### 👥 Speaker Diarization
-When you stop recording, OpenMic processes the audio through ElevenLabs batch API with speaker diarization enabled. The final transcript includes speaker labels (Speaker 1, Speaker 2, etc.) automatically.
+Audio is transcribed locally by [whisper.cpp](https://github.com/ggerganov/whisper.cpp) via [pywhispercpp](https://github.com/absadiki/pywhispercpp). No audio is sent to any server.
+
+Voice activity detection (webrtcvad) gates transcription on speech boundaries, reducing latency from ~10s (fixed interval) to ~1-3s after you stop speaking.
 
 ### 🔍 RAG-Powered Querying
+
 Ask natural language questions about past meetings. OpenMic uses LangChain with FAISS vector search to find relevant transcript segments, then generates accurate answers using your chosen LLM.
 
-![RAG Query Example](./assets/demo_query.png)
-*Ask questions about past meetings and get AI-powered answers*
-
 ### 📝 Structured Meeting Notes
-Generate professional meeting notes with a single command. Choose from multiple templates:
-- **Standard** - Comprehensive notes with agenda, discussion points, decisions, action items
-- **Concise** - Brief summary focused on outcomes
-- **Technical** - Code snippets, technical decisions, architecture discussions
-- **Team Meeting** - Team updates, blockers, priorities
-- **1:1** - Personal discussion points and follow-ups
-- **Executive** - High-level strategic summary
 
-![Meeting Notes Generation](./assets/demo_notes.png)
-*Auto-generated structured notes with agenda, decisions, and action items*
+Generate professional meeting notes with `/notes`. Notes are saved alongside the transcript and include agenda, discussion points, decisions, and action items.
 
 ### ⏸️ Pause/Resume
-Pause recording mid-meeting without ending the session. The audio file and WebSocket connection pause together, resuming seamlessly when you're ready.
+
+Pause recording mid-meeting without ending the session. Audio accumulates across pauses — the final transcript covers the full session.
 
 ### 📁 Transcript Browser
-Browse all your saved transcripts in a beautiful modal popup, organized by date (Today, Yesterday, or formatted date). See at a glance which transcripts still need notes generated (starred indicators).
 
-### 🎨 Themes
-Switch between carefully designed dark themes with `Ctrl+T`:
-- **OpenMic** - Custom theme with vibrant accents
-- **Nord** - Arctic, north-bluish color palette
-- Plus additional Textual built-in themes
+Browse all your saved transcripts organised by date (Today, Yesterday, or formatted date). Starred indicators show which transcripts still need notes generated.
 
-### 📊 Session Tracking
-Real-time display of API usage in the current session:
-- Audio transcription time (ElevenLabs credits)
-- LLM calls and token counts (Claude/GPT credits)
+### 🔒 Privacy Modes
+
+| Mode | Transcription | LLM | Cloud calls |
+|------|--------------|-----|-------------|
+| Local + cloud LLM | whisper.cpp (local) | Anthropic/OpenAI/etc | LLM only |
+| Fully local | whisper.cpp (local) | Ollama (local) | None |
 
 ---
 
@@ -208,12 +206,9 @@ notes/
   ├── 2026-02-11_14-30_notes.md
   ├── 2026-02-11_15-45_standup_notes.md
   └── ...
-
-recordings/
-  └── [temporary .wav files, auto-cleaned]
 ```
 
-All files use markdown format with frontmatter for metadata and easy readability.
+All files use markdown format for easy readability outside the app.
 
 ---
 
@@ -223,17 +218,16 @@ All files use markdown format with frontmatter for metadata and easy readability
 
 ```
 During session:
-  Mic ──► WebSocket (Scribe realtime) ──► live text displayed in TUI
-  Mic ──► local .wav file              ──► audio buffer on disk
+  Mic ──► whisper.cpp (local) ──► live text in terminal
+           └── webrtcvad gates segments on speech boundaries
+  Mic ──► local .wav file ──► audio buffer on disk
 
 On stop:
-  .wav ──► Scribe batch API (diarize=True) ──► Speaker-labeled transcript
-                                            ──► saved to transcripts/
-                                            ──► displayed in TUI
-                                            ──► .wav cleaned up
+  .wav ──► whisper.cpp batch transcription ──► transcript saved to transcripts/
+                                           ──► .wav cleaned up
 
 Post-session:
-  /query ──► LangChain RAG over transcripts/ ──► answer in TUI
+  /query ──► LangChain RAG over transcripts/ ──► answer in REPL
   /notes ──► LangChain summarization chain   ──► structured notes in notes/
 ```
 
@@ -241,25 +235,27 @@ Post-session:
 
 ```
 openmic/
-├── app.py          # TUI entry point (Textual). All widgets and orchestration.
-├── audio.py        # Mic capture via sounddevice. Writes 16kHz mono WAV.
-├── transcribe.py   # ElevenLabs Scribe (WebSocket realtime + REST batch)
-├── storage.py      # File I/O for transcripts/ and notes/ markdown files
-├── rag.py          # LangChain RAG: FAISS vector store + RetrievalQA chain
-├── notes.py        # LangChain summarization with template support
-└── templates/      # Built-in note templates (markdown + YAML frontmatter)
-```
+├── app.py              # CLI entry point (Rich + prompt_toolkit)
+├── audio.py            # Mic capture via sounddevice. Writes 16kHz mono WAV.
+├── local_transcribe.py # whisper.cpp transcription (realtime VAD + batch)
+├── storage.py          # File I/O for transcripts/ and notes/ markdown files
+├── rag.py              # LangChain RAG: FAISS vector store + RetrievalQA chain
+├── notes.py            # LangChain summarization chain
+├── setup.py            # Interactive setup wizard
+└── version.py          # Version management and self-update
 
-See [Developer Guide](#developer-guide) below for detailed data flow diagrams.
+archive/
+└── transcribe_elevenlabs.py  # Archived ElevenLabs backend (not active)
+```
 
 ---
 
 ## Requirements
 
 - **Python 3.12+**
-- **ElevenLabs API key** - For transcription (both realtime and batch)
-- **OpenAI API key** - For embeddings (RAG search)
-- **Anthropic or OpenAI API key** - For LLM completions (answers and notes)
+- **pywhispercpp** — local transcription via whisper.cpp (installed with `pip install "openmic[local]"`)
+- **Whisper model** — auto-downloads on first run (~75MB for `small.en`)
+- **LLM API key** — only needed for `/query` and `/notes` (not for transcription)
 
 ---
 
@@ -267,102 +263,36 @@ See [Developer Guide](#developer-guide) below for detailed data flow diagrams.
 
 ### Running Tests
 
-OpenMic includes a comprehensive test suite with **190 passing tests** covering:
-- Storage operations (transcripts, notes, templates)
-- Transcription parsing (diarization, error handling)
+```bash
+pip install -e ".[dev,anthropic,openai,local]"
+pytest
+pytest -v                          # verbose
+pytest tests/test_local_transcribe.py   # specific file
+```
+
+OpenMic has **212 passing tests** covering:
+- Storage operations (transcripts, notes)
+- Local transcription (VAD loop, parse logic)
 - RAG pipeline (vector search, LLM provider selection)
 - Notes generation (template system, caching)
-
-Install development dependencies:
-
-```bash
-pip install -e ".[dev,anthropic,openai]"
-```
-
-Run all tests:
-
-```bash
-pytest
-```
-
-Run with verbose output:
-
-```bash
-pytest -v
-```
-
-Run specific test file:
-
-```bash
-pytest tests/test_storage.py
-pytest tests/test_rag.py
-```
+- Setup wizard (provider selection, key mapping)
+- Version management (self-update, install detection)
 
 ### Test Coverage
 
-- `tests/test_storage.py` - Storage layer (13 tests)
-- `tests/test_transcribe.py` - Transcription parsing (8 tests)
-- `tests/test_rag.py` - RAG pipeline integration (11 tests)
-- `tests/test_notes.py` - Notes generation (7 tests)
-- `tests/test_templates.py` - Template system (8+ tests)
-- `tests/test_app.py` - TUI components (many tests)
-
----
-
-## Developer Guide
-
-For detailed technical documentation, see the full data flow and architecture diagrams in the code comments. Key highlights:
-
-### Data Flow Details
-
-```
-/start
-  app._start_recording()
-    ├── audio.AudioRecorder.start()          → opens mic stream
-    └── transcribe.RealtimeTranscriber.connect() → WebSocket to ElevenLabs
-
-  [while recording]
-    audio callback → transcribe.send_audio_chunk() → live text updates
-
-/stop
-  app._stop_recording()
-    ├── audio.AudioRecorder.stop()           → saves .wav file
-    ├── transcribe.RealtimeTranscriber.disconnect()
-    └── app._run_batch_transcription(wav_path)
-          ├── transcribe.BatchTranscriber.transcribe_file()
-          ├── transcribe.parse_diarized_result()
-          ├── storage.save_transcript()
-          ├── app._display_diarized_transcript()
-          └── cleanup .wav
-
-/query <question>
-  app._run_query()
-    └── rag.TranscriptRAG.query()
-          ├── FAISS vector search over transcript chunks
-          └── LLM generates answer from relevant context
-
-/notes
-  app._generate_notes()
-    └── notes.generate_meeting_notes()
-          ├── Template selection (if first time)
-          ├── LLM summarization with template prompt
-          └── storage.save_notes()
-```
+- `tests/test_storage.py` — Storage layer
+- `tests/test_local_transcribe.py` — Local transcription and VAD
+- `tests/test_rag.py` — RAG pipeline integration
+- `tests/test_notes.py` — Notes generation
+- `tests/test_app.py` — CLI and REPL
+- `tests/test_setup.py` — Setup wizard
+- `tests/test_version.py` — Version management
 
 ### Known Limitations
 
-- **Embeddings always use OpenAI** - Anthropic doesn't provide embeddings API
-- **Vector store is in-memory** - FAISS index rebuilt each session (not persisted)
-- **LangChain deprecations** - `LLMChain` and `chain.run()` are deprecated in newer versions
-- **No real-time streaming to WebSocket yet** - Live preview is a stub (batch transcription works)
-
-### Extending
-
-**Swap vector store**: Replace `FAISS` in `rag.py` with ChromaDB or Pinecone—the rest is abstracted.
-
-**Swap LLM provider**: Add a branch in `rag.get_llm()` and install the matching `langchain-<provider>` package.
-
-**Add new note templates**: Create markdown files in `~/.config/openmic/templates/` with YAML frontmatter.
+- **No speaker diarization in local mode** — All speech is attributed to "Speaker". Diarization requires pyannote-audio (torch dependency), which conflicts with the lightweight-CLI goal.
+- **Embeddings require OpenAI key** — Anthropic has no embeddings API. Use `LLM_PROVIDER=ollama` to avoid this.
+- **FAISS index rebuilt each session** — Not persisted between restarts.
 
 ---
 
@@ -372,27 +302,28 @@ For detailed technical documentation, see the full data flow and architecture di
 |----|----|-------|
 | **Linux** | ✅ Fully supported | Tested on Arch Linux |
 | **macOS** | ✅ Should work | Intel & Apple Silicon (untested) |
-| **Windows** | ✅ Should work | Use PowerShell or Git Bash (untested) |
+| **Windows** | ⚠️ Untested | webrtcvad may require extra build steps |
 
 ---
 
 ## How This Was Built
 
-I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) — giving it a feature list and bugs to fix in [CLAUDE.md](./CLAUDE.md), then iterating: Claude would implement a todo, I'd review it, and once tested it got pushed. The whole thing, from an empty directory to the current state (architecture, 163 tests, 50+ commits, this README), came out of that process. It's still a work in progress, but genuinely useful for what it does.
+I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) — giving it a feature list and bugs to fix in [CLAUDE.md](./CLAUDE.md), then iterating: Claude would implement a todo, I'd review it, and once tested it got pushed. The whole thing, from an empty directory to the current state (architecture, 212 tests, this README), came out of that process.
 
-The workflow is called Ralph Loop — Claude Code's agentic mode where it works through tasks continuously based on your feedback. If you're curious about the full history, [CLAUDE.md](./CLAUDE.md) has the complete TODO list and every decision made along the way.
+The pivot to fully local transcription came from wanting a tool I'd actually trust with sensitive meeting audio. whisper.cpp + webrtcvad gives sub-3-second latency with zero cloud calls.
 
-I use this daily for recording meetings — I've found myself enjoying a terminal-based workflow and wanted a transcription tool built on architecture I'm familiar with. Inspired in part by TUIs I've worked with recently, primarily [OpenCode](https://github.com/anomalyco/opencode/).
+I use this daily for recording meetings. Inspired in part by TUIs I've worked with recently, primarily [OpenCode](https://github.com/anomalyco/opencode/).
 
 ---
 
 ## Acknowledgments
 
-- **[Claude Code](https://github.com/anthropics/claude-code)** - Used to build this project iteratively
-- **Textual** - Excellent TUI framework by [Textualize](https://www.textualize.io/)
-- **ElevenLabs Scribe** - High-quality audio transcription with diarization
-- **LangChain** - Flexible framework for RAG and LLM chains
-- **OpenAI & Anthropic** - Embeddings and LLM APIs
+- **[Claude Code](https://github.com/anthropics/claude-code)** — Used to build this project iteratively
+- **[whisper.cpp](https://github.com/ggerganov/whisper.cpp)** — Fast local speech recognition by Georgi Gerganov
+- **[pywhispercpp](https://github.com/absadiki/pywhispercpp)** — Python bindings for whisper.cpp
+- **[webrtcvad](https://github.com/wiseman/py-webrtcvad)** — Voice activity detection (Google WebRTC VAD)
+- **[LangChain](https://github.com/langchain-ai/langchain)** — Flexible framework for RAG and LLM chains
+- **Rich** and **prompt_toolkit** — Terminal output and REPL input
 
 ---
 
@@ -404,6 +335,6 @@ MIT License - See [LICENSE](./LICENSE) file for details.
 
 ## Learn More
 
-- **See the development process**: [CLAUDE.md](./CLAUDE.md) - Complete TODO history and architecture decisions
+- **See the development process**: [CLAUDE.md](./CLAUDE.md) — Complete TODO history and architecture decisions
 - **Read the code**: All modules are documented with clear data flow and extension points
-- **Run the tests**: 163 automated tests demonstrate usage patterns
+- **Run the tests**: 212 automated tests demonstrate usage patterns

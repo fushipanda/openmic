@@ -23,7 +23,6 @@ PROVIDER_DEPS: dict[str, list[str]] = {
 }
 
 KEY_URLS = {
-    "ELEVENLABS_API_KEY": "https://elevenlabs.io/app/settings/api-keys",
     "OPENAI_API_KEY": "https://platform.openai.com/api-keys",
     "ANTHROPIC_API_KEY": "https://console.anthropic.com/settings/keys",
     "GEMINI_API_KEY": "https://aistudio.google.com/apikey",
@@ -39,10 +38,13 @@ PROVIDERS = [
 
 
 def _get_required_keys(provider: str) -> list[tuple[str, str]]:
-    """Return list of (env_key, label) tuples required for the given provider."""
+    """Return list of (env_key, label) tuples required for the given provider.
+
+    Transcription uses local whisper.cpp — no API key needed.
+    OPENAI_API_KEY is still required for embeddings (RAG / /query).
+    """
     keys = [
-        ("ELEVENLABS_API_KEY", "ElevenLabs API key (transcription)"),
-        ("OPENAI_API_KEY", "OpenAI API key (embeddings)"),
+        ("OPENAI_API_KEY", "OpenAI API key (embeddings for /query and /notes)"),
     ]
     if provider == "anthropic":
         keys.append(("ANTHROPIC_API_KEY", "Anthropic API key (Claude)"))
@@ -164,8 +166,9 @@ def run_setup() -> None:
     try:
         _print_banner()
         print("Welcome to OpenMic setup!")
-        print("This will configure your LLM provider, install")
-        print("dependencies, and set up API keys.")
+        print("Transcription runs locally via whisper.cpp — no API key needed.")
+        print("This will configure your LLM provider for /query and /notes,")
+        print("install dependencies, and set up API keys.")
         print()
         input("Press Enter to continue (or Ctrl+C to cancel)... ")
 
