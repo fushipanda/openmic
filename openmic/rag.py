@@ -15,7 +15,14 @@ from langchain_classic.chains.combine_documents import create_stuff_documents_ch
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
-from openmic.session import SESSIONS_DIR, session_to_text, list_sessions, get_session_meta
+from openmic.session import (
+    SESSIONS_DIR,
+    session_to_text,
+    list_sessions,
+    get_session_meta,
+    read_session,
+    display_title,
+)
 
 INDEX_DIR = Path.home() / ".config" / "openmic" / "faiss_index"
 MANIFEST_FILE = INDEX_DIR / "manifest.json"
@@ -67,13 +74,45 @@ def get_llm():
 
 
 def _session_display_name(session_path: Path) -> str:
-    """Return a human-readable display name for a session."""
+    """Return the best available display name for a session (customTitle > autoTitle > slug)."""
     try:
-        meta = get_session_meta(session_path)
-        name = meta.get("name") or session_path.stem
+        data = read_session(session_path)
+        return display_title(data).replace("_", " ").strip()
     except Exception:
-        name = session_path.stem
-    return name.replace("_", " ").strip()
+        return session_path.stem.replace("_", " ").strip()
+
+
+def generate_session_title(session_path: Path, word_threshold: int = 30) -> str | None:
+    """Generate a short AI title from a session's transcript content.
+
+    Returns None if the transcript has fewer than word_threshold words or if
+    the LLM call fails for any reason (title is optional metadata).
+    """
+    text = session_to_text(session_path)
+    if len(text.split()) < word_threshold:
+        return None
+
+    # Use only the first ~800 words to keep the call cheap
+    excerpt = " ".join(text.split()[:800])
+    llm = get_llm()
+    prompt = ChatPromptTemplate.from_messages([
+        ("system",
+         "Generate a short, specific meeting title from this transcript excerpt.\n"
+         "Rules:\n"
+         "- 3–7 words, sentence case\n"
+         "- Reflect the actual topic or action discussed\n"
+         "- Avoid vague labels: 'Meeting', 'Transcript', 'Discussion', 'Session', 'Notes'\n"
+         "- Return ONLY a JSON object: {\"title\": \"...\"}"),
+        ("human", "{text}"),
+    ])
+    try:
+        chain = prompt | llm
+        result = chain.invoke({"text": excerpt})
+        parsed = json.loads(result.content)
+        title = parsed.get("title")
+        return str(title).strip() if title else None
+    except Exception:
+        return None
 
 
 class TranscriptRAG:

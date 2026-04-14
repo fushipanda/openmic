@@ -461,3 +461,92 @@ class TestGetEmbeddings:
 
             from langchain_openai import OpenAIEmbeddings
             assert isinstance(emb, OpenAIEmbeddings)
+
+
+class TestGenerateSessionTitle:
+    """Tests for generate_session_title() in openmic/rag.py."""
+
+    @pytest.fixture
+    def session_dir(self, tmp_path, monkeypatch):
+        sessions = tmp_path / "sessions"
+        sessions.mkdir()
+        monkeypatch.setattr("openmic.rag.SESSIONS_DIR", sessions)
+        monkeypatch.setattr("openmic.session.SESSIONS_DIR", sessions)
+        return sessions
+
+    def _write_session(self, sessions_dir: Path, text: str) -> Path:
+        """Write a minimal session JSONL with the given transcript text."""
+        import json as _json
+        from openmic.session import create_session, append_transcript
+        words = text.split()
+        segs = [{"speaker": "Speaker", "text": " ".join(words[i:i+10]), "start": float(i), "end": float(i+1)}
+                for i in range(0, len(words), 10)]
+        path = create_session("test")
+        append_transcript(path, segs, len(words) * 0.5)
+        return path
+
+    def test_skips_below_word_threshold(self, session_dir, monkeypatch):
+        from openmic.rag import generate_session_title
+        path = self._write_session(session_dir, "too short")
+        result = generate_session_title(path, word_threshold=30)
+        assert result is None
+
+    def test_returns_title_from_llm(self, session_dir, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from openmic.rag import generate_session_title
+
+        long_text = " ".join(["word"] * 50)
+        path = self._write_session(session_dir, long_text)
+
+        mock_llm = MagicMock()
+        mock_result = MagicMock()
+        mock_result.content = '{"title": "Quarterly roadmap planning"}'
+        mock_llm.invoke.return_value = mock_result
+
+        with patch("openmic.rag.get_llm", return_value=mock_llm):
+            # The chain is prompt | llm — we need to mock the full chain
+            mock_chain = MagicMock()
+            mock_chain.invoke.return_value = mock_result
+            with patch("openmic.rag.ChatPromptTemplate") as mock_pt:
+                mock_pt.from_messages.return_value.__or__ = lambda s, o: mock_chain
+                title = generate_session_title(path, word_threshold=30)
+
+        # Title extracted from JSON response
+        assert title == "Quarterly roadmap planning"
+
+    def test_handles_llm_failure(self, session_dir, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from openmic.rag import generate_session_title
+
+        long_text = " ".join(["word"] * 50)
+        path = self._write_session(session_dir, long_text)
+
+        mock_llm = MagicMock()
+        mock_chain = MagicMock()
+        mock_chain.invoke.side_effect = RuntimeError("LLM unavailable")
+
+        with patch("openmic.rag.get_llm", return_value=mock_llm):
+            with patch("openmic.rag.ChatPromptTemplate") as mock_pt:
+                mock_pt.from_messages.return_value.__or__ = lambda s, o: mock_chain
+                result = generate_session_title(path, word_threshold=30)
+
+        assert result is None  # failure is silent
+
+    def test_handles_bad_json(self, session_dir, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from openmic.rag import generate_session_title
+
+        long_text = " ".join(["word"] * 50)
+        path = self._write_session(session_dir, long_text)
+
+        mock_result = MagicMock()
+        mock_result.content = "not valid json at all"
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = mock_result
+
+        with patch("openmic.rag.get_llm"):
+            with patch("openmic.rag.ChatPromptTemplate") as mock_pt:
+                mock_pt.from_messages.return_value.__or__ = lambda s, o: mock_chain
+                result = generate_session_title(path, word_threshold=30)
+
+        assert result is None
