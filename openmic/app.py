@@ -199,6 +199,7 @@ HELP_COMMANDS = [
     ("/rename <title>",  "Set a custom display title for the active session"),
     ("/name <name>",     "Rename the latest transcript"),
     ("/cleanup-recordings", "Delete all saved recordings"),
+    ("/clear",           "Exit active session and clear the screen"),
     ("/verbose",         "Toggle debug output"),
     ("/version",         "Show version and check for updates"),
     ("/exit",            "Quit OpenMic"),
@@ -1362,6 +1363,16 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
 
     if cmd == "/stop":
         console.print("[dim]Not currently recording. Use /start to begin.[/]")
+        return True
+
+    # --- Clear session + chat history ---
+    if cmd == "/clear":
+        ctx.active_session_path = None
+        ctx.active_session_name = None
+        ctx.latest_transcript_path = None
+        ctx.chatting = False
+        ctx.rag.clear_chat_history()
+        console.clear()
         return True
 
     # --- Query ---
