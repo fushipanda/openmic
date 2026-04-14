@@ -70,29 +70,29 @@ def get_existing_notes(transcript_path: Path) -> tuple[str, Path, Optional[str]]
 
 
 def generate_meeting_notes(
-    transcript_path: Path, template_id: str = "default"
+    transcript_path: Path, template_id: str = "default", force_regen: bool = False
 ) -> tuple[str, Path, bool]:
     """Generate structured meeting notes from a transcript.
 
-    Returns cached notes if they already exist for this transcript with the same template.
+    Returns cached notes if they already exist for this transcript with the same template,
+    unless force_regen is True.
 
     Args:
         transcript_path: Path to the transcript markdown file
         template_id: ID of the template to use (default: "default")
+        force_regen: Skip cache and regenerate even if notes already exist
 
     Returns:
         Tuple of (generated notes content, path to saved notes file, used_cache)
         used_cache is True if existing notes were returned, False if new notes generated
     """
-    existing = get_existing_notes(transcript_path)
-    if existing is not None:
-        existing_content, existing_path, existing_template = existing
-        # If same template, return cached notes
-        if existing_template == template_id:
+    if not force_regen:
+        existing = get_existing_notes(transcript_path)
+        if existing is not None:
+            existing_content, existing_path, existing_template = existing
+            if existing_template == template_id:
+                return existing_content, existing_path, True
             return existing_content, existing_path, True
-        # Different template - caller should handle overwrite prompt
-        # For now, return existing (caller will decide whether to overwrite)
-        return existing_content, existing_path, True
 
     # Load template
     template_manager = TemplateManager()
@@ -103,10 +103,21 @@ def generate_meeting_notes(
 
     transcript_content = transcript_path.read_text()
 
+    # Prepend universal markdown format rules so all templates — including
+    # user-created or fallback ones — produce consistently formatted output.
+    _FORMAT_RULES = (
+        "Format rules (apply to all output):\n"
+        "- Use ## for section headings\n"
+        "- Use - for bullet points (never indent with spaces)\n"
+        "- Use **text** for bold emphasis on key names, decisions, or terms\n"
+        "- Use | col | col | markdown tables only for clear tabular data\n"
+        "- Do NOT open with a filler sentence like 'Here are the notes'\n\n"
+    )
+
     # Create LangChain prompt from template
     prompt = PromptTemplate(
         input_variables=["transcript"],
-        template=template.prompt,
+        template=_FORMAT_RULES + template.prompt,
     )
 
     llm = get_llm()

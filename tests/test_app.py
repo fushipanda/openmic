@@ -7,19 +7,25 @@ import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import io
+from rich.console import Console as RichConsole
+
 from openmic.app import (
     HELP_COMMANDS,
     MODEL_REGISTRY,
     ReplContext,
     UsageTracker,
     _load_config,
+    _parse_md_table,
     _parse_transcript_meta,
     _resolve_transcript_mention,
     _save_config,
     _update_env_file,
     handle_command,
     pick_transcript,
+    render_markdown,
 )
+import openmic.app as app_module
 
 
 # ---------------------------------------------------------------------------
@@ -635,3 +641,106 @@ class TestRenameCommand:
         assert result is True
         out = capsys.readouterr().out
         assert "Usage" in out or "rename" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# _parse_md_table
+# ---------------------------------------------------------------------------
+
+class TestParseMdTable:
+    def test_basic_table(self):
+        lines = ["| A | B |", "|---|---|", "| 1 | 2 |"]
+        result = _parse_md_table(lines)
+        assert result is not None
+        assert result["headers"] == ["A", "B"]
+        assert result["rows"] == [["1", "2"]]
+
+    def test_alignment_detection(self):
+        lines = ["| L | C | R |", "|:---|:---:|---:|", "| a | b | c |"]
+        result = _parse_md_table(lines)
+        assert result["alignments"] == ["left", "center", "right"]
+
+    def test_default_alignment_is_left(self):
+        lines = ["| A |", "|---|", "| x |"]
+        result = _parse_md_table(lines)
+        assert result["alignments"] == ["left"]
+
+    def test_short_rows_padded(self):
+        lines = ["| A | B | C |", "|---|---|---|", "| 1 |"]
+        result = _parse_md_table(lines)
+        assert result["rows"][0] == ["1", "", ""]
+
+    def test_returns_none_for_non_table(self):
+        lines = ["not a table", "just text"]
+        assert _parse_md_table(lines) is None
+
+    def test_returns_none_for_single_row(self):
+        lines = ["| A | B |"]
+        assert _parse_md_table(lines) is None
+
+    def test_returns_none_for_bad_separator(self):
+        lines = ["| A | B |", "| not | separator |", "| 1 | 2 |"]
+        assert _parse_md_table(lines) is None
+
+    def test_empty_data_rows(self):
+        lines = ["| A | B |", "|---|---|"]
+        result = _parse_md_table(lines)
+        assert result is not None
+        assert result["rows"] == []
+
+    def test_multiple_data_rows(self):
+        lines = ["| A | B |", "|---|---|", "| 1 | 2 |", "| 3 | 4 |"]
+        result = _parse_md_table(lines)
+        assert len(result["rows"]) == 2
+        assert result["rows"][1] == ["3", "4"]
+
+
+# ---------------------------------------------------------------------------
+# render_markdown
+# ---------------------------------------------------------------------------
+
+class TestRenderMarkdown:
+    @pytest.fixture(autouse=True)
+    def capture_console(self, monkeypatch):
+        self.buf = io.StringIO()
+        monkeypatch.setattr(app_module, "console", RichConsole(file=self.buf, width=80, highlight=False))
+
+    def _output(self):
+        return self.buf.getvalue()
+
+    def test_table_renders_headers(self):
+        render_markdown("| A | B |\n|---|---|\n| 1 | 2 |")
+        out = self._output()
+        assert "A" in out and "B" in out
+        assert "1" in out and "2" in out
+
+    def test_plain_text_rendered(self):
+        render_markdown("Hello **world**")
+        out = self._output()
+        assert "Hello" in out
+
+    def test_mixed_content_both_rendered(self):
+        md = "Some text here.\n\n| Col1 | Col2 |\n|------|------|\n| val1 | val2 |"
+        render_markdown(md)
+        out = self._output()
+        assert "Some text here" in out
+        assert "Col1" in out
+        assert "val1" in out
+
+    def test_narrow_terminal_stacked_format(self, monkeypatch):
+        buf = io.StringIO()
+        monkeypatch.setattr(app_module, "console", RichConsole(file=buf, width=40, highlight=False))
+        render_markdown("| Owner | Task |\n|-------|------|\n| Alice | Fix bug |")
+        out = buf.getvalue()
+        # Stacked: headers used as labels
+        assert "Owner" in out
+        assert "Alice" in out
+        assert "Task" in out
+
+    def test_empty_string_no_error(self):
+        render_markdown("")  # should not raise
+
+    def test_non_table_pipe_chars_not_treated_as_table(self):
+        # A line with | but not a valid table (no separator row following)
+        render_markdown("Option A | Option B\nJust text")
+        # Should not crash — rendered as plain text

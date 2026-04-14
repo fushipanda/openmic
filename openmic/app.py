@@ -20,13 +20,24 @@ from rich.console import Console
 from rich.markdown import Markdown as RichMarkdown
 from rich.table import Table, box
 from rich.text import Text
+from rich.theme import Theme
 
 from dotenv import load_dotenv
 
 CONFIG_DIR = Path.home() / ".config" / "openmic"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 
-console = Console()
+_MD_THEME = Theme({
+    "markdown.h1":        "bold #00d4aa underline",
+    "markdown.h2":        "bold #00d4aa",
+    "markdown.h3":        "#00d4aa",
+    "markdown.h1.border": "#007a63",
+    "markdown.strong":    "bold bright_white",
+    "markdown.emph":      "italic",
+    "markdown.code":      "bold #569cd6",
+})
+
+console = Console(theme=_MD_THEME, force_terminal=True, color_system="truecolor")
 
 
 def _load_config() -> dict:
@@ -179,6 +190,7 @@ HELP_COMMANDS = [
     ("/transcript <n>",  "View a session by number or name"),
     ("/query <question>","Ask a question across all transcripts"),
     ("/notes",           "Generate notes (with template selection)"),
+    ("/notes <template>","Regenerate notes with a specific template"),
     ("/notes copy",      "Copy latest notes to clipboard"),
     ("/notes export",    "Export latest notes to a markdown file (use 'html' for email-ready output)"),
     ("/regen",           "Regenerate notes using the saved template"),
@@ -250,6 +262,7 @@ class ReplContext:
     usage: UsageTracker = field(default_factory=UsageTracker)
     latest_transcript_path: Path | None = None
     active_session_path: Path | None = None
+    active_session_name: str | None = None
     verbose: bool = False
     chatting: bool = False
 
@@ -695,6 +708,152 @@ async def _with_spinner(label: str, fn):
 
 
 # ---------------------------------------------------------------------------
+# Markdown rendering
+# ---------------------------------------------------------------------------
+
+_TABLE_LINE_RE = re.compile(r'^\s*\|')
+
+
+def _parse_md_table(lines: list[str]) -> dict | None:
+    """Parse markdown table lines into {headers, alignments, rows}.
+
+    Returns None if lines don't form a valid table (must have header + separator rows).
+    alignments: list of 'left' | 'center' | 'right' per column.
+    """
+    stripped = [l.strip() for l in lines if l.strip()]
+    if len(stripped) < 2:
+        return None
+
+    def _cells(line: str) -> list[str]:
+        return [c.strip() for c in line.strip().strip("|").split("|")]
+
+    headers = _cells(stripped[0])
+    n = len(headers)
+
+    sep = _cells(stripped[1])
+    if not all(re.match(r'^:?-+:?$', c) for c in sep):
+        return None
+
+    alignments = []
+    for cell in sep:
+        if cell.startswith(':') and cell.endswith(':'):
+            alignments.append('center')
+        elif cell.endswith(':'):
+            alignments.append('right')
+        else:
+            alignments.append('left')
+
+    rows = [_cells(r) for r in stripped[2:]]
+    rows = [(r + [''] * n)[:n] for r in rows]
+
+    return {"headers": headers, "alignments": alignments, "rows": rows}
+
+
+def _render_md_table(table: dict) -> None:
+    """Render a parsed markdown table. Uses stacked format on narrow terminals."""
+    import shutil
+
+    cols    = shutil.get_terminal_size((80, 24)).columns
+    headers = table["headers"]
+    aligns  = table["alignments"]
+    rows    = table["rows"]
+
+    def _stacked() -> None:
+        for i, row in enumerate(rows):
+            if i > 0:
+                console.print(f"  [{TEAL_DIM}]{'·' * 28}[/]")
+            for h, v in zip(headers, row):
+                console.print(f"  [bold dim]{h}:[/] {v}")
+
+    if cols < 60:
+        _stacked()
+        return
+
+    n = len(headers)
+    max_widths = [
+        max(len(headers[i]), *(len(r[i]) for r in rows) if rows else [0])
+        for i in range(n)
+    ]
+
+    available = cols - (n * 3) - 1
+    total_content = sum(max_widths)
+
+    MIN_READABLE = 15  # below this per-column, stacked is cleaner
+
+    # If even minimum-width columns won't fit, stacked is more readable than cramped cells
+    if n * MIN_READABLE > available:
+        _stacked()
+        return
+
+    if total_content <= available:
+        widths = max_widths
+    else:
+        widths = [max(MIN_READABLE, int(w * available / total_content)) for w in max_widths]
+
+    RICH_JUSTIFY = {"left": "left", "center": "center", "right": "right"}
+    t = Table(show_header=True, header_style=f"bold {TEAL}", box=box.SIMPLE_HEAD, padding=(0, 1))
+    for h, a, w in zip(headers, aligns, widths):
+        t.add_column(h, justify=RICH_JUSTIFY[a], no_wrap=False, max_width=w)
+    for row in rows:
+        t.add_row(*row)
+    console.print(t)
+
+
+def _strip_md_frontmatter(content: str) -> str:
+    """Remove YAML frontmatter (---\\n...\\n---) from the start of a markdown string."""
+    if not content.startswith("---"):
+        return content
+    parts = content.split("---", 2)
+    # parts[0] == '' (before first ---), parts[1] == frontmatter, parts[2] == rest
+    if len(parts) == 3:
+        return parts[2].lstrip("\n")
+    return content
+
+
+def render_markdown(content: str) -> None:
+    """Render markdown to the console with custom table handling.
+
+    Table blocks use a width-aware Rich Table; everything else uses RichMarkdown.
+    """
+    lines = content.splitlines(keepends=True)
+    segment_lines: list[str] = []
+    in_table = False
+
+    def _flush_text(buf: list[str]) -> None:
+        text = "".join(buf).strip()
+        if text:
+            console.print(RichMarkdown(text))
+
+    def _flush_table(buf: list[str]) -> None:
+        parsed = _parse_md_table(buf)
+        if parsed:
+            _render_md_table(parsed)
+        else:
+            _flush_text(buf)
+
+    for line in lines:
+        if in_table:
+            if _TABLE_LINE_RE.match(line):
+                segment_lines.append(line)
+            else:
+                _flush_table(segment_lines)
+                segment_lines = [line]
+                in_table = False
+        else:
+            if _TABLE_LINE_RE.match(line):
+                _flush_text(segment_lines)
+                segment_lines = [line]
+                in_table = True
+            else:
+                segment_lines.append(line)
+
+    if in_table:
+        _flush_table(segment_lines)
+    else:
+        _flush_text(segment_lines)
+
+
+# ---------------------------------------------------------------------------
 # Query
 # ---------------------------------------------------------------------------
 
@@ -706,7 +865,7 @@ async def _run_query_on_path(question: str, path: Path, ctx: ReplContext) -> Non
         console.print()
         console.print(f"[bold {TEAL}]  >[/] {question}")
         console.print()
-        console.print(RichMarkdown(answer))
+        render_markdown(answer)
     except Exception as e:
         console.print(f"[red]Query error: {e}[/]")
 
@@ -733,7 +892,7 @@ async def _run_query_all(question: str, ctx: ReplContext) -> None:
         console.print()
         console.print(f"[bold {TEAL}]  >[/] {question}")
         console.print()
-        console.print(RichMarkdown(answer))
+        render_markdown(answer)
         if sources:
             console.print(f"[dim]Sources: {', '.join(sources)}[/]")
         console.print()
@@ -760,10 +919,10 @@ async def _generate_notes_for_session(
     if not force_regen and existing_notes:
         # Show the most recent notes entry from the session
         latest = existing_notes[-1]
-        content = latest.get("content", "")
+        content = _strip_md_frontmatter(latest.get("content", ""))
         saved_template = latest.get("template", "default")
         console.print()
-        console.print(RichMarkdown(content))
+        render_markdown(content)
         console.print()
         console.print(f"[dim]Notes from session: {session_path.name}[/]")
         return
@@ -780,15 +939,25 @@ async def _generate_notes_for_session(
     session_name = meta.get("name", session_path.stem).replace("_", " ")
     header = f"# {session_name}\n\n"
 
+    # Derive a properly-formatted filename for the temp file so that
+    # generate_meeting_notes() can parse the date from the stem correctly.
+    created_iso = meta.get("created", "")
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False, encoding="utf-8"
-        ) as tmp:
-            tmp.write(header + text)
-            tmp_path = Path(tmp.name)
+        dt = datetime.fromisoformat(created_iso)
+        ts_prefix = dt.strftime("%Y-%m-%d_%H-%M")
+    except (ValueError, TypeError):
+        ts_prefix = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    raw_name = meta.get("name", "")
+    safe_name = re.sub(r"[^\w-]", "_", raw_name)[:40] if raw_name else ""
+    tmp_filename = f"{ts_prefix}_{safe_name}.md" if safe_name else f"{ts_prefix}.md"
+
+    try:
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_path = tmp_dir / tmp_filename
+        tmp_path.write_text(header + text, encoding="utf-8")
 
         label = f"Generating notes ({template_id})"
-        result = await _with_spinner(label, lambda: generate_meeting_notes(tmp_path, template_id))
+        result = await _with_spinner(label, lambda: generate_meeting_notes(tmp_path, template_id, force_regen=force_regen))
         notes_content, _, _ = result
         if ctx:
             ctx.usage.add_llm_call()
@@ -797,7 +966,7 @@ async def _generate_notes_for_session(
         session_append_notes(session_path, notes_content, template_id)
 
         console.print()
-        console.print(RichMarkdown(notes_content))
+        render_markdown(_strip_md_frontmatter(notes_content))
         console.print()
         console.print(f"[dim]Notes saved to session: {session_path.name}[/]")
     except Exception as e:
@@ -805,6 +974,7 @@ async def _generate_notes_for_session(
     finally:
         try:
             tmp_path.unlink()
+            tmp_dir.rmdir()
         except Exception:
             pass
 
@@ -845,6 +1015,33 @@ async def _do_notes(ctx: ReplContext, force_regen: bool = False) -> None:
         console.print()
         template_id = pick_template()
         await _generate_notes_for_session(session_path, template_id, ctx=ctx)
+
+
+async def _do_notes_with_template(ctx: ReplContext, template_id: str) -> None:
+    """Handle /notes <template> — force-regenerate notes with the given template."""
+    from openmic.templates import TemplateManager
+    tm = TemplateManager()
+    if tm.get_template(template_id) is None:
+        available = [t.id for t in tm.get_builtin_templates() + tm.get_user_templates()]
+        console.print(f"[red]Unknown template '{template_id}'. Available: {', '.join(available)}[/]")
+        return
+
+    if ctx.active_session_path and ctx.active_session_path.exists():
+        session_path = ctx.active_session_path
+    else:
+        sessions = list_sessions()
+        if not sessions:
+            console.print("[dim]No sessions available.[/]")
+            return
+        if len(sessions) == 1:
+            session_path = sessions[0]
+        else:
+            console.print()
+            session_path = pick_session(sessions, active=ctx.active_session_path)
+            if session_path is None:
+                return
+
+    await _generate_notes_for_session(session_path, template_id, force_regen=True, ctx=ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -1118,6 +1315,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             session_append_transcript(session_path, segments, duration_s)
             if ctx:
                 ctx.active_session_path = session_path
+                ctx.active_session_name = session_name or session_path.stem
             data = read_session(session_path)
             console.print(f"[dim]Session created: {display_title(data).replace('_', ' ')}[/]")
             # Fire background title generation
@@ -1226,6 +1424,12 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         await _do_notes(ctx, force_regen=False)
         return True
 
+    if cmd.startswith("/notes "):
+        template_arg = cmd[7:].strip()
+        if template_arg and template_arg not in ("copy", "export", "export html"):
+            await _do_notes_with_template(ctx, template_arg)
+            return True
+
     if cmd == "/regen":
         await _do_notes(ctx, force_regen=True)
         return True
@@ -1252,6 +1456,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         if selected:
             ctx.active_session_path = selected
             meta = get_session_meta(selected)
+            ctx.active_session_name = meta.get("name") or selected.stem
             data = read_session(selected)
             n = len(data["transcripts"])
             name = meta.get("name", selected.stem)
@@ -1280,6 +1485,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         if target:
             ctx.active_session_path = target
             meta = get_session_meta(target)
+            ctx.active_session_name = meta.get("name") or target.stem
             data = read_session(target)
             n = len(data["transcripts"])
             name = meta.get("name", target.stem)
@@ -1328,6 +1534,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             console.print("[dim]No active session. Select one with /sessions first.[/]")
         else:
             append_rename(ctx.active_session_path, new_title)
+            ctx.active_session_name = new_title
             console.print(f"[dim]Session renamed to: {new_title}[/]")
         return True
 
@@ -1401,8 +1608,10 @@ META_BRIGHT = "#c0ccd8"   # description text (selected)
 
 OPENMIC_STYLE = {
     # Separator lines and prompt character
-    "separator":  f"{TEAL_DIM}",
-    "prompt":     f"{TEAL} bold",
+    "separator":    f"{TEAL_DIM}",
+    "prompt":       f"{TEAL} bold",
+    "session-label": f"{TEAL_DIM}",
+    "session-arrow": f"{TEAL} bold",
 
     # Ghost-text auto-suggestion (appears inline after cursor)
     "auto-suggestion": GHOST_TEXT,
@@ -1530,13 +1739,45 @@ async def repl_loop(ctx: ReplContext) -> None:
 
     # ── Completion display above separator ────────────────────────────────────
 
+    def _get_template_commands() -> list[tuple[str, str]]:
+        """Return ('/notes <id>', description) pairs for all available templates."""
+        try:
+            from openmic.templates import TemplateManager
+            tm = TemplateManager()
+            return [
+                (f"/notes {t.id}", t.description or t.name)
+                for t in tm.get_builtin_templates() + tm.get_user_templates()
+            ]
+        except Exception:
+            return []
+
+    def _prompt_prefix() -> list:
+        name = ctx.active_session_name
+        if name:
+            clean = name.replace("_", " ").strip()
+            if len(clean) > 28:
+                clean = clean[:27] + "…"
+            return [
+                ("class:session-label", clean),
+                ("class:session-label", "  ·  "),
+                ("class:session-arrow", "›  "),
+            ]
+        return [("class:prompt", "›  ")]
+
     def _slash_matches() -> list[tuple[str, str]]:
         text = buf.document.text_before_cursor
         if not text.startswith("/"):
             return []
+        tl = text.lower()
+        # When typing "/notes " show template completions instead of subcommand list
+        if tl.startswith("/notes "):
+            return [
+                (cmd, desc) for cmd, desc in _get_template_commands()
+                if cmd.lower().startswith(tl)
+            ]
         return [
             (cmd, desc) for cmd, desc in HELP_COMMANDS
-            if cmd and cmd.lower().startswith(text.lower())
+            if cmd and cmd.lower().startswith(tl)
         ]
 
     def _completions_text():
@@ -1643,7 +1884,7 @@ async def repl_loop(ctx: ReplContext) -> None:
                 content=BufferControl(
                     buffer=buf,
                     input_processors=[
-                        BeforeInput("›  ", style="class:prompt"),
+                        BeforeInput(_prompt_prefix),
                         AppendAutoSuggestion(),
                     ],
                     include_default_input_processors=False,

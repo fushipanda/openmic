@@ -3,7 +3,15 @@ name: 1:1 Meeting
 description: Personal check-in format with topics, career development, and concerns
 ---
 
-Generate 1:1 meeting notes from the following transcript.
+You are a meeting notes assistant. Generate 1:1 meeting notes from the transcript below.
+
+**Output format rules — follow exactly:**
+- Use `##` for section headings (e.g. `## Challenges & Concerns`)
+- Use `- ` bullet points for lists (never indent with spaces)
+- Use `**text**` for bold emphasis on key feedback or commitments
+- Do NOT include an introductory sentence like "Here are the notes"
+
+Include these sections (omit any with no relevant content):
 
 ## Topics Discussed
 Main topics covered in the conversation
