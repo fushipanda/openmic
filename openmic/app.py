@@ -183,6 +183,7 @@ HELP_COMMANDS = [
     ("/notes",           "Generate notes (with template selection)"),
     ("/notes copy",      "Copy latest notes to clipboard"),
     ("/notes export",    "Export latest notes to a markdown file"),
+    ("/notes export html", "Export notes as HTML — open in browser, copy-paste to email"),
     ("/regen",           "Regenerate notes using the saved template"),
     ("/model",           "Select LLM provider and model"),
     ("/transcribe",      "Select Whisper model size"),
@@ -868,6 +869,41 @@ def _latest_notes_content(session_path: Path) -> str | None:
     return notes[-1].get("content") if notes else None
 
 
+_HTML_WRAPPER = """\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8">
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 14px; color: #000; max-width: 800px; margin: 40px auto; padding: 0 20px; }}
+  h1, h2, h3 {{ color: #000; }}
+  h2 {{ font-size: 15px; margin-top: 24px; margin-bottom: 6px; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 8px 0 16px; }}
+  th {{ text-align: left; padding: 6px 12px; border-bottom: 2px solid #000; font-weight: bold; }}
+  td {{ padding: 5px 12px; border-bottom: 1px solid #ccc; vertical-align: top; }}
+  ul, ol {{ margin: 4px 0 12px; padding-left: 20px; }}
+  li {{ margin-bottom: 3px; }}
+  p {{ margin: 4px 0 10px; }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""
+
+
+def _notes_to_html(markdown_content: str) -> str:
+    """Convert markdown notes to an email-friendly HTML document."""
+    import markdown as md
+    # Strip YAML frontmatter if present
+    content = markdown_content
+    if content.startswith("---"):
+        end = content.find("---", 3)
+        if end != -1:
+            content = content[end + 3:].lstrip()
+    body = md.markdown(content, extensions=["tables", "nl2br"])
+    return _HTML_WRAPPER.format(body=body)
+
+
 def _copy_to_clipboard(text: str) -> bool:
     """Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
 
@@ -1155,6 +1191,22 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
                 console.print("[dim]Notes copied to clipboard.[/]")
             else:
                 console.print("[red]No clipboard tool found (wl-copy or xclip required).[/]")
+        return True
+
+    if cmd == "/notes export html":
+        session_path = _get_notes_session(ctx)
+        if session_path:
+            content = _latest_notes_content(session_path)
+            if not content:
+                console.print("[dim]No notes yet. Run /notes to generate them first.[/]")
+            else:
+                meta = get_session_meta(session_path)
+                slug = meta.get("slug") or meta.get("name") or session_path.stem
+                export_path = Path.home() / f"{slug}_notes.html"
+                export_path.write_text(_notes_to_html(content), encoding="utf-8")
+                console.print(f"[dim]Notes exported to: {export_path}[/]")
+                import subprocess
+                subprocess.Popen(["xdg-open", str(export_path)])
         return True
 
     if cmd == "/notes export":
