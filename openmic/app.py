@@ -185,8 +185,7 @@ HELP_COMMANDS = [
     ("/start [name]",    "Start a new recording session"),
     ("/record [name]",   "Start a new recording session"),
     ("/stop",            "Stop recording and run batch transcription"),
-    ("/history",         "Browse sessions and set the active session"),
-    ("/sessions",        "Browse sessions and set the active session"),
+    ("/resume",          "Browse sessions and set the active session"),
     ("/transcript <n>",  "View a session by number or name"),
     ("/query <question>","Ask a question across all transcripts"),
     ("/notes",           "Generate notes (with template selection)"),
@@ -1458,7 +1457,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             console.print("[dim]No recent transcript to rename.[/]")
         return True
 
-    if cmd in ("/sessions", "/history", "/transcripts", "/transcript"):
+    if cmd in ("/resume", "/sessions", "/history", "/transcripts", "/transcript"):
         sessions = list_sessions()
         if not sessions:
             console.print("[dim]No sessions found. Use /start to record a meeting.[/]")
