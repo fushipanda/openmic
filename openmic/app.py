@@ -1695,7 +1695,8 @@ async def repl_loop(ctx: ReplContext) -> None:
         except EOFError:
             console.print("\n[dim]Goodbye![/]")
             break
-        console.print()
+        cols = shutil.get_terminal_size((80, 24)).columns
+        console.print(f"[{TEAL_DIM}]{'─' * cols}[/]")
         running = await handle_command(cmd.strip(), ctx)
         if not running:
             console.print("[dim]Goodbye![/]")
