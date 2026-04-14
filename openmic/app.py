@@ -702,9 +702,20 @@ async def _with_spinner(label: str, fn):
     loop = asyncio.get_event_loop()
     try:
         return await loop.run_in_executor(None, fn)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        done.set()
+        spin.cancel()
+        try:
+            await spin
+        except asyncio.CancelledError:
+            pass
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+        raise
     finally:
         done.set()
-        await spin
+        if not spin.done():
+            await spin
 
 
 # ---------------------------------------------------------------------------
@@ -1952,7 +1963,11 @@ async def repl_loop(ctx: ReplContext) -> None:
         except EOFError:
             console.print("\n[dim]Goodbye![/]")
             break
-        running = await handle_command(cmd.strip(), ctx)
+        try:
+            running = await handle_command(cmd.strip(), ctx)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            console.print("\n[dim]Cancelled.[/]")
+            continue
         if not running:
             console.print("[dim]Goodbye![/]")
             break
