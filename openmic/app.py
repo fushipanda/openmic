@@ -1372,6 +1372,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         ctx.chatting = False
         ctx.rag.clear_chat_history()
         console.clear()
+        _print_welcome()
         return True
 
     # --- Query ---
@@ -1692,6 +1693,12 @@ class _CommandCompleter:
                 pass
 
 
+def _print_welcome() -> None:
+    model_label = UsageTracker.current_model_label()
+    hint = f"  {model_label}" if model_label else ""
+    console.print(f"\n[bold {TEAL}]openmic[/][dim]{hint}  —  /help for commands[/]\n")
+
+
 async def repl_loop(ctx: ReplContext) -> None:
     """Interactive REPL — reads commands until /exit or EOF."""
     import shutil
@@ -1712,9 +1719,7 @@ async def repl_loop(ctx: ReplContext) -> None:
     from prompt_toolkit.filters import Condition
     from prompt_toolkit.styles import Style
 
-    model_label = UsageTracker.current_model_label()
-    hint = f"  {model_label}" if model_label else ""
-    console.print(f"\n[bold {TEAL}]openmic[/][dim]{hint}  —  /help for commands[/]\n")
+    _print_welcome()
 
     history   = InMemoryHistory()
     _suggest  = _CommandAutoSuggest()
