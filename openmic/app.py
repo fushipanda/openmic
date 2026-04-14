@@ -298,7 +298,8 @@ def print_banner() -> None:
     console.print(f"[bold #00d4aa]{BANNER}[/]")
     console.print()
     tip = random.choice(_TIPS)
-    console.print(f"[dim]tip  {tip}[/]  [dim]v{get_version()}[/]")
+    console.print(f"[dim]v{get_version()}[/]")
+    console.print(f"[dim]tip: {tip}[/]")
     console.print()
 
 
