@@ -158,6 +158,7 @@ from openmic.session import (
     list_sessions,
     read_session,
     get_session_meta,
+    session_duration_s,
 )
 from openmic.rag import TranscriptRAG, generate_session_title
 from openmic.notes import generate_meeting_notes, get_existing_notes
@@ -426,6 +427,27 @@ def pick_transcript(transcripts: list[Path]) -> Path | None:
         return None
 
 
+def _format_duration(seconds: float) -> str:
+    """Format seconds as M:SS or H:MM:SS."""
+    secs = int(seconds)
+    h, remainder = divmod(secs, 3600)
+    m, s = divmod(remainder, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _print_duration_bar(session_path: Path) -> None:
+    """Print a duration bar for a session if it has recordings."""
+    duration = session_duration_s(session_path)
+    if duration <= 0:
+        return
+    bar_max = 40
+    filled = min(bar_max, max(1, int(duration / 30)))
+    bar = "━" * filled + "╌" * (bar_max - filled)
+    console.print(f"  [dim]{bar}[/]  [bold]{_format_duration(duration)}[/] [dim]total[/]")
+
+
 def pick_session(sessions: list[Path], active: Path | None = None) -> Path | None:
     """Arrow-key session picker. Returns selected session path or None."""
     if not sessions:
@@ -565,7 +587,7 @@ def pick_template() -> str:
 
 def pick_whisper_model() -> str | None:
     """Arrow-key whisper model picker. Returns model_id or None."""
-    current_model = os.environ.get("WHISPER_MODEL", "small.en")
+    current_model = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
 
     rows: list[dict] = [{"kind": "header", "text": "Whisper model (whisper.cpp — local)"}]
     for model_id, desc in WHISPER_MODELS:
@@ -874,9 +896,11 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     _start_time: list[float] = [0.0]
     _last_seg_end: list[float] = [0.0]           # tracks end time of previous segment
 
+    # Offset elapsed display by existing session duration so timer reads cumulatively
+    _offset_s = session_duration_s(ctx.active_session_path) if (ctx and ctx.active_session_path and ctx.active_session_path.exists()) else 0.0
+
     def _elapsed() -> str:
-        secs = int(time.monotonic() - _start_time[0])
-        return f"{secs // 60}:{secs % 60:02d}"
+        return _format_duration(_offset_s + (time.monotonic() - _start_time[0]))
 
     usage = ctx.usage if ctx else UsageTracker()
     verbose = ctx.verbose if ctx else False
@@ -1119,6 +1143,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             n = len(data["transcripts"])
             name = meta.get("name", selected.stem)
             console.print(f"[dim]Active session: {name} ({n} recording{'s' if n != 1 else ''})[/]")
+            _print_duration_bar(selected)
         return True
 
     if cmd.startswith("/transcript ") or cmd.startswith("/history ") or cmd.startswith("/sessions "):
@@ -1146,6 +1171,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             n = len(data["transcripts"])
             name = meta.get("name", target.stem)
             console.print(f"[dim]Active session: {name} ({n} recording{'s' if n != 1 else ''})[/]")
+            _print_duration_bar(target)
         else:
             console.print(f"[dim]Session not found: {identifier}[/]")
         return True
@@ -1588,7 +1614,7 @@ Commands:
   openmic --version              Show version
 
 Transcription is handled locally via whisper.cpp — no API key required.
-Set WHISPER_MODEL in .env to change the model (default: small.en).
+Set WHISPER_MODEL in .env to change the model (default: large-v3-turbo).
 """
 
 

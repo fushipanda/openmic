@@ -225,6 +225,12 @@ def session_to_text(session_path: Path) -> str:
     return "\n".join(parts)
 
 
+def session_duration_s(session_path: Path) -> float:
+    """Return total recorded duration in seconds across all transcript entries."""
+    data = read_session(session_path)
+    return sum(t.get("duration_s", 0.0) for t in data.get("transcripts", []))
+
+
 def list_sessions() -> list[Path]:
     """List all session JSONL files, sorted newest first (by mtime)."""
     if not SESSIONS_DIR.exists():

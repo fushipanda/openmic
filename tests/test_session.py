@@ -18,6 +18,7 @@ from openmic.session import (
     list_sessions,
     read_session,
     session_to_text,
+    session_duration_s,
 )
 
 _SEGMENTS = [
@@ -428,3 +429,34 @@ class TestReadSessionTitleFields:
         path = create_session("test")
         data = read_session(path)
         assert data["lastTranscriptAt"] is None
+
+
+# ---------------------------------------------------------------------------
+# session_duration_s
+# ---------------------------------------------------------------------------
+
+class TestSessionDurationS:
+    def test_empty_session_returns_zero(self, tmp_sessions_dir):
+        path = create_session("test")
+        assert session_duration_s(path) == 0.0
+
+    def test_sums_single_recording(self, tmp_sessions_dir):
+        path = create_session("test")
+        segs = [{"speaker": "Speaker", "text": "Hello", "start": 0.0, "end": 4.5}]
+        append_transcript(path, segs, 4.5)
+        assert session_duration_s(path) == 4.5
+
+    def test_sums_multiple_recordings(self, tmp_sessions_dir):
+        path = create_session("test")
+        segs = [{"speaker": "Speaker", "text": "Hello", "start": 0.0, "end": 1.0}]
+        append_transcript(path, segs, 4.5)
+        append_transcript(path, segs, 3.0)
+        assert session_duration_s(path) == 7.5
+
+    def test_missing_duration_treated_as_zero(self, tmp_sessions_dir):
+        path = create_session("test")
+        # Write a transcript entry with no duration_s field
+        import json
+        with path.open("a") as f:
+            f.write(json.dumps({"type": "transcript", "segments": [], "id": "x", "timestamp": "t"}) + "\n")
+        assert session_duration_s(path) == 0.0
