@@ -22,10 +22,10 @@ from openmic.local_transcribe import (
 # ---------------------------------------------------------------------------
 
 class FakeSegment:
-    def __init__(self, text, t0=0, t1=100):
-        self.text = text
-        self.t0   = t0
-        self.t1   = t1
+    def __init__(self, text, start=0.0, end=1.0):
+        self.text  = text
+        self.start = start
+        self.end   = end
 
 
 class FakeModel:
@@ -37,7 +37,7 @@ class FakeModel:
     def transcribe(self, audio, **kwargs):
         self.call_count += 1
         self.last_audio = audio
-        return [FakeSegment(self.return_text)]
+        return [FakeSegment(self.return_text)], None
 
 
 class FakeVad:
@@ -69,7 +69,7 @@ def _make_transcriber(fake_model=None, committed=None):
         on_committed=lambda text: committed.append(text),
         on_error=lambda msg: None,
     )
-    t._model = fake_model  # bypass _get_model() which calls pywhispercpp
+    t._model = fake_model  # bypass _get_model() which calls faster-whisper
     return t, committed
 
 
@@ -164,11 +164,10 @@ class TestLocalBatchTranscriber:
         bt = self._make_batch()
         bt._model = FakeModel()
         # Override transcribe to return mix of empty and valid segments
-        bt._model.transcribe = lambda audio, **kw: [
-            FakeSegment(""),
-            FakeSegment("  "),
-            FakeSegment("valid text", t0=200, t1=300),
-        ]
+        bt._model.transcribe = lambda audio, **kw: (
+            [FakeSegment(""), FakeSegment("  "), FakeSegment("valid text", start=2.0, end=3.0)],
+            None,
+        )
         result = bt.transcribe_file("fake.wav")
         assert len(result.words) == 1
         assert result.words[0].text == "valid text"
@@ -177,13 +176,11 @@ class TestLocalBatchTranscriber:
         """Consecutive words from the same speaker are merged into one segment."""
         result = MagicMock()
         result.words = [
-            FakeSegment("Hello", t0=0, t1=50),
-            FakeSegment("world", t0=50, t1=100),
+            FakeSegment("Hello", start=0.0, end=0.5),
+            FakeSegment("world", start=0.5, end=1.0),
         ]
         for w in result.words:
             w.speaker_id = "Speaker"
-            w.start = w.t0 / 100.0
-            w.end   = w.t1 / 100.0
 
         segments = LocalBatchTranscriber.parse_diarized_result(result)
         assert len(segments) == 1
@@ -194,8 +191,8 @@ class TestLocalBatchTranscriber:
     def test_parse_diarized_result_splits_on_speaker_change(self):
         """Words from different speakers produce separate segments."""
         result = MagicMock()
-        w1 = FakeSegment("Hi", t0=0, t1=50); w1.speaker_id = "A"; w1.start = 0.0; w1.end = 0.5
-        w2 = FakeSegment("Hey", t0=50, t1=100); w2.speaker_id = "B"; w2.start = 0.5; w2.end = 1.0
+        w1 = FakeSegment("Hi", start=0.0, end=0.5); w1.speaker_id = "A"
+        w2 = FakeSegment("Hey", start=0.5, end=1.0); w2.speaker_id = "B"
         result.words = [w1, w2]
 
         segments = LocalBatchTranscriber.parse_diarized_result(result)

@@ -156,8 +156,6 @@ from openmic.storage import (
     TRANSCRIPTS_DIR,
     NOTES_DIR,
     RECORDINGS_DIR,
-    list_recordings,
-    delete_all_recordings,
 )
 from openmic.session import (
     create_session,
@@ -198,7 +196,6 @@ HELP_COMMANDS = [
     ("/transcribe",      "Select Whisper model size"),
     ("/rename <title>",  "Set a custom display title for the active session"),
     ("/name <name>",     "Rename the latest transcript"),
-    ("/cleanup-recordings", "Delete all saved recordings"),
     ("/clear",           "Exit active session and clear the screen"),
     ("/verbose",         "Toggle debug output"),
     ("/version",         "Show version and check for updates"),
@@ -1239,6 +1236,16 @@ async def _background_title_gen(session_path: Path) -> None:
 # Recording mode
 # ---------------------------------------------------------------------------
 
+def _maybe_delete_wav(wav_path: Path) -> None:
+    """Delete a WAV recording unless KEEP_RECORDINGS=true is set."""
+    if os.environ.get("KEEP_RECORDINGS", "").lower() == "true":
+        return
+    try:
+        wav_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 async def recording_mode(session_name: str | None = None, ctx: ReplContext | None = None) -> Path | None:
     """
     Record audio and stream live transcript to terminal.
@@ -1246,6 +1253,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     Returns the saved transcript path, or None on failure.
     """
     import time
+    from rich.console import Group
     from rich.live import Live
     from rich.table import Table
     from rich.text import Text as RichText
@@ -1303,21 +1311,74 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         on_audio_chunk=on_audio_chunk,
         on_limit_reached=lambda: console.print("\n[yellow]⚠ 6-hour limit reached — stopping.[/]"),
     )
+
+    _model_ready = [False]
+
+    def on_ready() -> None:
+        _model_ready[0] = True
+        _start_time[0] = time.monotonic()
+
     transcriber = RealtimeTranscriberCls(
         on_partial=on_partial,
         on_committed=on_committed,
         on_error=on_error,
         on_debug=on_debug,
+        on_ready=on_ready,
     )
 
     wav_path = recorder.start()
-    await transcriber.connect()
-    _start_time[0] = time.monotonic()
+    connect_task = asyncio.create_task(transcriber.connect())
 
-    session_info = f" [{session_name}]" if session_name else ""
-    console.print()
-    console.print(f"[bold #ff4757]◉ RECORDING{session_info}[/]  [dim]Ctrl+C to stop[/]")
-    console.print()
+    _GLIMMER_BASE = (255, 71, 87)      # #ff4757 — base red
+    _GLIMMER_PEAK = (255, 195, 200)    # #ffc3c8 — soft rosy highlight at sweep peak
+    _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def _lerp_color(t: float) -> str:
+        r = int(_GLIMMER_BASE[0] + (_GLIMMER_PEAK[0] - _GLIMMER_BASE[0]) * t)
+        g = int(_GLIMMER_BASE[1] + (_GLIMMER_PEAK[1] - _GLIMMER_BASE[1]) * t)
+        b = int(_GLIMMER_BASE[2] + (_GLIMMER_PEAK[2] - _GLIMMER_BASE[2]) * t)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _build_loading_header(frame: int) -> RichText:
+        model_name = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
+        spinner = _SPINNER_FRAMES[frame % len(_SPINNER_FRAMES)]
+        line = RichText()
+        line.append(spinner, style="dim")
+        line.append(f" Loading model ({model_name})...", style="dim")
+        return line
+
+    def _build_rec_header(frame: int, elapsed_s: float) -> RichText:
+        # 20-frame cycle (2 s at 100 ms/frame)
+        # Frames 0–13: dot on + glimmer sweeps left→right  (~2/3)
+        # Frames 14–19: dot off, text rests at base red     (~1/3)
+        cycle = frame % 20
+        dot_on = cycle < 14
+
+        dot = "◉" if dot_on else "○"
+        dot_style = "bold #ff4757" if dot_on else "#7a1a22"
+
+        mins = int(elapsed_s) // 60
+        secs = int(elapsed_s) % 60
+        session_part = f" [{session_name}]" if session_name else ""
+
+        line = RichText()
+        line.append(dot, style=dot_style)
+        line.append(" ", style="bold")
+
+        word = f"Recording ...{session_part}"
+        if dot_on:
+            # Sweep travels from just before index 0 to just past the last char
+            sweep_pos = (cycle / 13.0) * (len(word) + 1) - 1.0
+            for i, char in enumerate(word):
+                dist = abs(i - sweep_pos)
+                intensity = max(0.0, 1.0 - dist / 5.0)
+                line.append(char, style=f"bold {_lerp_color(intensity)}")
+        else:
+            line.append(word, style="bold #ff4757")
+
+        line.append(f"   {mins}:{secs:02d}", style="dim")
+        line.append("   Ctrl+C to stop", style="dim")
+        return line
 
     def _make_chunk_row(text: str, ts: str) -> Table:
         row = Table.grid(expand=True)
@@ -1326,20 +1387,29 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         row.add_row(RichText(text), RichText(ts, style="dim"))
         return row
 
+    frame_count = 0
     with Live(RichText(""), console=console, refresh_per_second=8, transient=False) as live:
         try:
             while True:
                 await asyncio.sleep(0.1)
+                frame_count += 1
                 while committed_queue:
                     text, ts = committed_queue.pop(0)
                     live.console.print(_make_chunk_row(text, ts))
                     live.console.print()
-                if _dirty[0]:
+                if not _model_ready[0]:
+                    live.update(_build_loading_header(frame_count))
+                else:
+                    elapsed_s = time.monotonic() - _start_time[0]
+                    header = _build_rec_header(frame_count, elapsed_s)
                     partial = partial_holder[0]
-                    live.update(RichText(partial, style="dim italic") if partial else RichText(""))
-                    _dirty[0] = False
+                    body = RichText(partial, style="dim italic") if partial else RichText("")
+                    live.update(Group(header, body))
+                _dirty[0] = False
         except (KeyboardInterrupt, asyncio.CancelledError):
             pass
+
+    await connect_task
 
     console.print()
     console.print("[dim]Stopping...[/]")
@@ -1397,6 +1467,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             # Fire background title generation if no autoTitle yet
             if data.get("autoTitle") is None:
                 asyncio.create_task(_background_title_gen(active))
+            _maybe_delete_wav(returned_wav)
             return active
         else:
             # Prompt for a name if none supplied
@@ -1416,6 +1487,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             console.print(f"[dim]Session created: {display_title(data).replace('_', ' ')}[/]")
             # Fire background title generation
             asyncio.create_task(_background_title_gen(session_path))
+            _maybe_delete_wav(returned_wav)
             return session_path
 
     except Exception as e:
@@ -1674,16 +1746,6 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         return True
 
     # --- Misc ---
-    if cmd == "/cleanup-recordings":
-        recordings = list_recordings()
-        if not recordings:
-            console.print("[dim]No recordings to clean up.[/]")
-            return True
-        count, total_bytes = delete_all_recordings()
-        size_str = f"{total_bytes / 1_048_576:.1f} MB" if total_bytes >= 1_048_576 else f"{total_bytes / 1024:.1f} KB"
-        console.print(f"[dim]Deleted {count} recording{'s' if count != 1 else ''} ({size_str} freed).[/]")
-        return True
-
     if cmd == "/verbose":
         ctx.verbose = not ctx.verbose
         console.print(f"[dim]Verbose mode: {'ON' if ctx.verbose else 'OFF'}[/]")

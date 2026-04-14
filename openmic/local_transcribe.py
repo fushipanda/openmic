@@ -1,4 +1,4 @@
-"""Local transcription backend using pywhispercpp (whisper.cpp). No cloud API calls."""
+"""Local transcription backend using faster-whisper (CTranslate2). No cloud API calls."""
 
 import asyncio
 import os
@@ -6,15 +6,6 @@ import queue
 from typing import Callable
 
 import numpy as np
-
-# Shared whisper params to suppress TUI-breaking output and tune for speech
-_WHISPER_PARAMS = {
-    "language": b"en",
-    "print_progress": False,
-    "print_realtime": False,
-    "print_timestamps": False,
-    "no_speech_thold": 0.3,
-}
 
 # webrtcvad frame constants — must be exactly 10, 20, or 30ms at 16kHz
 _VAD_FRAME_MS      = 30
@@ -26,11 +17,13 @@ _MAX_IDLE_BYTES    = 16000 * _BYTES_PER_SAMPLE * 35  # 35s before idle trim
 
 
 def _get_whisper_model():
-    """Load whisper.cpp model via pywhispercpp. Auto-downloads if needed."""
-    from pywhispercpp.model import Model
+    """Load faster-whisper model via CTranslate2. Auto-downloads if needed. Uses GPU when available."""
+    from faster_whisper import WhisperModel
 
     model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
-    return Model(model_size, n_threads=os.cpu_count() or 4, redirect_whispercpp_logs_to=os.devnull)
+    device = os.environ.get("WHISPER_DEVICE", "auto")
+    compute_type = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
+    return WhisperModel(model_size, device=device, compute_type=compute_type)
 
 
 def _try_load_webrtcvad(aggressiveness: int = 2):
@@ -62,11 +55,13 @@ class LocalRealtimeTranscriber:
         on_committed: Callable[[str], None] | None = None,
         on_error: Callable[[str], None] | None = None,
         on_debug: Callable[[str], None] | None = None,
+        on_ready: Callable[[], None] | None = None,
     ) -> None:
         self.on_partial = on_partial
         self.on_committed = on_committed
         self.on_error = on_error
         self.on_debug = on_debug
+        self.on_ready = on_ready
         self.verbose = False
         self._running = False
         self._audio_queue: queue.Queue[bytes] = queue.Queue()
@@ -77,12 +72,7 @@ class LocalRealtimeTranscriber:
 
     def _get_model(self):
         if self._model is None:
-            model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
-            if self.on_error:
-                self.on_error(f"Loading whisper model ({model_size})...")
             self._model = _get_whisper_model()
-            if self.on_error:
-                self.on_error("Local transcription ready")
         return self._model
 
     async def connect(self) -> None:
@@ -90,6 +80,8 @@ class LocalRealtimeTranscriber:
         self._running = True
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._get_model)
+        if self.on_ready:
+            self.on_ready()
 
         vad_enabled = os.environ.get("WHISPER_VAD_ENABLED", "true").lower() != "false"
 
@@ -270,7 +262,10 @@ class LocalRealtimeTranscriber:
     def _transcribe_audio(self, audio_bytes: bytes) -> str:
         model = self._get_model()
         samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        segments = model.transcribe(samples, **_WHISPER_PARAMS)
+        segments, _ = model.transcribe(
+            samples, language="en", beam_size=5,
+            no_speech_threshold=0.3, vad_filter=False,
+        )
         return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
 
     @property
@@ -291,15 +286,15 @@ class LocalBatchTranscriber:
 
     def transcribe_file(self, audio_path: str, num_speakers: int = 10) -> "LocalResult":
         model = self._get_model()
-        segments = model.transcribe(audio_path, **_WHISPER_PARAMS)
+        segments, _ = model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3)
         words = []
         for seg in segments:
             text = seg.text.strip()
             if text:
                 words.append(_Word(
                     text=text,
-                    start=seg.t0 / 100.0,
-                    end=seg.t1 / 100.0,
+                    start=seg.start,
+                    end=seg.end,
                     speaker_id="Speaker",
                 ))
         return LocalResult(words=words)
