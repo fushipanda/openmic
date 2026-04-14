@@ -1572,11 +1572,9 @@ async def repl_loop(ctx: ReplContext) -> None:
     @kb.add("enter")
     def _accept(event):
         matches = _slash_matches()
-        if matches:
-            # Enter runs the currently highlighted completion, not raw buffer text
-            event.app.exit(result=matches[_comp_idx[0]][0])
-        else:
-            event.app.exit(result=buf.text)
+        result = matches[_comp_idx[0]][0] if matches else buf.text
+        event.app.renderer.reset()
+        event.app.exit(result=result)
 
     def _has_completions() -> bool:
         return bool(_slash_matches())
@@ -1610,6 +1608,7 @@ async def repl_loop(ctx: ReplContext) -> None:
             _cycle(-1)
         else:
             # Quick-start recording shortcut
+            event.app.renderer.reset()
             event.app.exit(result="/start")
 
     # Arrow keys navigate completions when visible; fall through to emacs
