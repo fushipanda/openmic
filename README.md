@@ -12,7 +12,7 @@
 
 ## What It Does
 
-Most tools that process your speech send it to the cloud. OpenMic doesn't. Everything runs locally — transcription, storage, querying — so your ideas stay yours.
+Most tools that transcribe your speech send your audio to the cloud. OpenMic doesn't — that part always runs locally. Everything after that — querying, summarising, generating notes — is configurable, from fully offline Ollama to any cloud LLM you prefer.
 
 Start a session for anything: a meeting, a brainstorm, a voice journal, a technical walkthrough. OpenMic captures what you say, structures it, and makes it immediately queryable by any AI system you point at it.
 
@@ -192,12 +192,14 @@ Pause recording mid-meeting without ending the session. Audio accumulates across
 
 Browse all your saved transcripts organised by date (Today, Yesterday, or formatted date). Indicators show which transcripts still need notes generated.
 
-### Privacy Modes
+### Privacy Model
 
-| Mode | Transcription | LLM | Cloud calls |
-|------|--------------|-----|-------------|
-| Local + cloud LLM | faster-whisper (local, GPU) | Anthropic/OpenAI/etc | LLM only |
-| Fully local | faster-whisper (local, GPU) | Ollama (local) | None |
+Audio transcription always runs locally — your recordings are never uploaded regardless of which LLM you use. The configurable part is what happens to the resulting transcript.
+
+| Mode | Transcription | LLM | Audio uploaded |
+|------|--------------|-----|----------------|
+| Local transcription + cloud LLM | faster-whisper (local) | Anthropic, OpenAI, Gemini, OpenRouter | Never |
+| Fully local | faster-whisper (local) | Ollama | Never |
 
 ---
 
