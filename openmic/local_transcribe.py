@@ -108,7 +108,7 @@ class LocalRealtimeTranscriber:
             self._transcribe_task = asyncio.create_task(self._transcribe_loop())
 
     async def disconnect(self) -> None:
-        """Stop the transcription loop."""
+        """Stop the transcription loop and explicitly free the whisper model."""
         self._running = False
         if self._transcribe_task:
             self._transcribe_task.cancel()
@@ -122,6 +122,9 @@ class LocalRealtimeTranscriber:
                 self._audio_queue.get_nowait()
             except queue.Empty:
                 break
+        # Explicitly release the whisper.cpp C-level context so whisper_free() is
+        # called immediately rather than waiting for Python GC.
+        self._model = None
 
     def send_audio_chunk(self, audio_bytes: bytes) -> None:
         if not self._running:

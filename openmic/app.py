@@ -868,9 +868,11 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
 
     lines: list[str] = []
     partial_holder: list[str] = [""]
-    committed_queue: list[tuple[str, str]] = []  # (text, elapsed)
+    committed_queue: list[tuple[str, str]] = []  # (text, elapsed) for display
+    realtime_segments: list[dict] = []           # structured segments for session JSONL
     _dirty: list[bool] = [False]
     _start_time: list[float] = [0.0]
+    _last_seg_end: list[float] = [0.0]           # tracks end time of previous segment
 
     def _elapsed() -> str:
         secs = int(time.monotonic() - _start_time[0])
@@ -890,6 +892,14 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     def on_committed(text: str) -> None:
         partial_holder[0] = ""
         lines.append(text)
+        now = time.monotonic() - _start_time[0]
+        realtime_segments.append({
+            "speaker": "Speaker",
+            "text": text.strip(),
+            "start": round(_last_seg_end[0], 2),
+            "end": round(now, 2),
+        })
+        _last_seg_end[0] = now
         committed_queue.append((text, _elapsed()))
         _dirty[0] = True
 
@@ -900,7 +910,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         if verbose:
             console.print(f"[dim]  dbg: {msg}[/]")
 
-    RealtimeTranscriberCls, BatchTranscriberCls = _get_transcribers()
+    RealtimeTranscriberCls, _ = _get_transcribers()
 
     recorder = AudioRecorder(
         output_dir=RECORDINGS_DIR,
@@ -957,14 +967,13 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         console.print("[dim]No audio recorded.[/]")
         return None
 
-    console.print("[dim]Running batch transcription...[/]")
+    # Use the realtime transcript segments directly — no batch pass needed.
+    # Whisper.cpp already transcribed the audio chunk-by-chunk during recording;
+    # running it again on the full WAV would eat CPU after recording stops with
+    # no quality improvement (local mode has no diarization either way).
     try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, lambda: BatchTranscriberCls().transcribe_file(str(returned_wav))
-        )
         duration_s = returned_wav.stat().st_size / (16000 * 2)  # int16 mono 16kHz
-        segments = BatchTranscriberCls.parse_diarized_result(result)
+        segments = realtime_segments
 
         _SPEAKER_COLORS = [
             "#00d4aa",  # teal
