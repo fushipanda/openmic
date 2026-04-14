@@ -172,18 +172,17 @@ BANNER = """\
 
 HELP_COMMANDS = [
     ("/start [name]",    "Start a new recording session"),
-    ("/recording [name]","Alias for /start"),
+    ("/record [name]",   "Start a new recording session"),
     ("/stop",            "Stop recording and run batch transcription"),
     ("/pause",           "Pause recording"),
     ("/resume",          "Resume a paused recording"),
+    ("/history",         "Browse sessions and set the active session"),
     ("/sessions",        "Browse sessions and set the active session"),
-    ("/history",         "Alias for /sessions"),
     ("/transcript <n>",  "View a session by number or name"),
     ("/query <question>","Ask a question across all transcripts"),
     ("/notes",           "Generate notes (with template selection)"),
     ("/notes copy",      "Copy latest notes to clipboard"),
-    ("/notes export",    "Export latest notes to a markdown file"),
-    ("/notes export html", "Export notes as HTML — open in browser, copy-paste to email"),
+    ("/notes export",    "Export latest notes to a markdown file (use 'html' for email-ready output)"),
     ("/regen",           "Regenerate notes using the saved template"),
     ("/model",           "Select LLM provider and model"),
     ("/transcribe",      "Select Whisper model size"),
@@ -1145,10 +1144,12 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         return True
 
     # --- Recording ---
-    if cmd in ("/start", "/recording") or cmd.startswith("/start ") or cmd.startswith("/recording "):
-        # Extract optional name argument from either /start or /recording
+    if cmd in ("/start", "/record", "/recording") or cmd.startswith("/start ") or cmd.startswith("/record ") or cmd.startswith("/recording "):
+        # Extract optional name argument from /start, /record, or /recording
         if cmd.startswith("/start "):
             session_name = cmd[7:].strip().replace(" ", "_") or None
+        elif cmd.startswith("/record "):
+            session_name = cmd[8:].strip().replace(" ", "_") or None
         elif cmd.startswith("/recording "):
             session_name = cmd[11:].strip().replace(" ", "_") or None
         else:
