@@ -186,6 +186,7 @@ HELP_COMMANDS = [
     ("/record [name]",   "Start a new recording session"),
     ("/stop",            "Stop recording and run batch transcription"),
     ("/resume",          "Browse sessions and set the active session"),
+    ("/delete",          "Permanently delete a session"),
     ("/transcript <n>",  "View a session by number or name"),
     ("/query <question>","Ask a question across all transcripts"),
     ("/notes",           "Generate notes (with template selection)"),
@@ -1560,6 +1561,34 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             _print_duration_bar(target)
         else:
             console.print(f"[dim]Session not found: {identifier}[/]")
+        return True
+
+    # --- Delete session ---
+    if cmd == "/delete":
+        sessions = list_sessions()
+        if not sessions:
+            console.print("[dim]No sessions to delete.[/]")
+            return True
+        selected = pick_session(sessions, active=ctx.active_session_path)
+        if not selected:
+            return True
+        meta = get_session_meta(selected)
+        name = meta.get("name") or selected.stem
+        console.print(f"[bold red]Delete '{name}'? This cannot be undone.[/] [y/N] ", end="")
+        try:
+            answer = input("").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            console.print()
+            return True
+        if answer != "y":
+            console.print("[dim]Cancelled.[/]")
+            return True
+        selected.unlink()
+        console.print(f"[dim]Deleted: {name}[/]")
+        if ctx.active_session_path == selected:
+            ctx.active_session_path = None
+            ctx.active_session_name = None
+        ctx.rag.refresh()
         return True
 
     # --- Model ---
