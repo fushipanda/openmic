@@ -2051,13 +2051,14 @@ async def repl_loop(ctx: ReplContext) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-_KNOWN_SUBCOMMANDS = {"record", "query", "notes", "list", "model", "update", "setup"}
+_KNOWN_SUBCOMMANDS = {"record", "query", "notes", "list", "model", "update", "setup", "resume"}
 
 _HELP_TEXT = """\
 Usage: openmic [command] [args]
 
 Commands:
   openmic                        Interactive REPL
+  openmic resume                 Pick a session and enter REPL
   openmic record [name]          Record a meeting, then enter REPL
   openmic "query text"           Run a one-shot query and exit
   openmic query "query text"     Same (explicit form)
@@ -2112,6 +2113,10 @@ def main() -> None:
         return
 
     # ── Subcommands ──────────────────────────────────────────────────────────
+    if first == "resume":
+        _run_interactive(resume=True)
+        return
+
     if first in ("record", "--record", "-r"):
         session_name = "_".join(rest) if rest else None
         _run_interactive(record=True, session_name=session_name)
@@ -2164,8 +2169,12 @@ def _bootstrap() -> dict | None:
     return config
 
 
-def _run_interactive(record: bool = False, session_name: str | None = None) -> None:
-    """Start interactive session (optional recording first)."""
+def _run_interactive(
+    record: bool = False,
+    session_name: str | None = None,
+    resume: bool = False,
+) -> None:
+    """Start interactive session (optional recording or resume first)."""
     config = _bootstrap()
     if config is None:
         return
@@ -2177,7 +2186,9 @@ def _run_interactive(record: bool = False, session_name: str | None = None) -> N
     ctx = ReplContext(rag=rag)
 
     async def _run():
-        if record:
+        if resume:
+            await handle_command("/resume", ctx)
+        elif record:
             path = await recording_mode(session_name=session_name, ctx=ctx)
             if path:
                 ctx.latest_transcript_path = path
