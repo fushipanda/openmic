@@ -9,8 +9,11 @@ import pytest
 from openmic.session import (
     SESSIONS_DIR,
     append_notes,
+    append_rename,
+    append_title_update,
     append_transcript,
     create_session,
+    display_title,
     get_session_meta,
     list_sessions,
     read_session,
@@ -190,7 +193,13 @@ class TestReadSession:
     def test_missing_file_returns_empty(self, tmp_sessions_dir):
         missing = tmp_sessions_dir / "ghost.jsonl"
         data = read_session(missing)
-        assert data == {"meta": {}, "transcripts": [], "notes": []}
+        assert data["meta"] == {}
+        assert data["transcripts"] == []
+        assert data["notes"] == []
+        assert data["autoTitle"] is None
+        assert data["customTitle"] is None
+        assert data["updatedAt"] is None
+        assert data["lastTranscriptAt"] is None
 
     def test_invalid_lines_skipped(self, tmp_sessions_dir):
         path = create_session("test")
@@ -263,3 +272,159 @@ class TestListSessions:
         sessions = list_sessions()
         assert len(sessions) == 1
         assert sessions[0].suffix == ".jsonl"
+
+
+# ---------------------------------------------------------------------------
+# create_session — slug field
+# ---------------------------------------------------------------------------
+
+class TestCreateSessionSlug:
+    def test_slug_in_meta(self, tmp_sessions_dir):
+        path = create_session("standup")
+        meta = json.loads(path.read_text().splitlines()[0])
+        assert "slug" in meta
+
+    def test_slug_matches_filename_stem_for_named(self, tmp_sessions_dir):
+        path = create_session("standup")
+        meta = json.loads(path.read_text().splitlines()[0])
+        assert meta["slug"] == path.stem
+
+    def test_slug_is_timestamp_pattern_for_unnamed(self, tmp_sessions_dir):
+        path = create_session()
+        meta = json.loads(path.read_text().splitlines()[0])
+        # YYYY-MM-DD_HH-MM
+        assert len(meta["slug"]) == 16
+        assert meta["slug"][4] == "-" and meta["slug"][7] == "-" and meta["slug"][10] == "_"
+
+    def test_slug_unchanged_on_collision(self, tmp_sessions_dir):
+        p1 = create_session("standup")
+        p2 = create_session("standup")
+        slug1 = json.loads(p1.read_text().splitlines()[0])["slug"]
+        slug2 = json.loads(p2.read_text().splitlines()[0])["slug"]
+        # Filenames differ due to collision suffix, slugs may match (base slug stored in meta)
+        assert slug1 == "standup"
+        assert slug2 == "standup"
+        assert p1 != p2
+
+
+# ---------------------------------------------------------------------------
+# append_title_update
+# ---------------------------------------------------------------------------
+
+class TestAppendTitleUpdate:
+    def test_appends_title_update_entry(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_title_update(path, "Quarterly budget review", "anthropic/claude-3-5-haiku")
+        lines = path.read_text().splitlines()
+        assert len(lines) == 2
+        entry = json.loads(lines[1])
+        assert entry["type"] == "title_update"
+        assert entry["autoTitle"] == "Quarterly budget review"
+        assert entry["model"] == "anthropic/claude-3-5-haiku"
+
+    def test_appends_title_update_has_id_and_timestamp(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_title_update(path, "Sprint planning kick-off", "openai/gpt-4o-mini")
+        entry = json.loads(path.read_text().splitlines()[1])
+        assert "id" in entry
+        assert "timestamp" in entry
+
+
+# ---------------------------------------------------------------------------
+# append_rename
+# ---------------------------------------------------------------------------
+
+class TestAppendRename:
+    def test_appends_rename_entry(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_rename(path, "My Custom Title")
+        lines = path.read_text().splitlines()
+        assert len(lines) == 2
+        entry = json.loads(lines[1])
+        assert entry["type"] == "rename"
+        assert entry["customTitle"] == "My Custom Title"
+
+    def test_appends_rename_has_id_and_timestamp(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_rename(path, "Another Title")
+        entry = json.loads(path.read_text().splitlines()[1])
+        assert "id" in entry
+        assert "timestamp" in entry
+
+
+# ---------------------------------------------------------------------------
+# display_title
+# ---------------------------------------------------------------------------
+
+class TestDisplayTitle:
+    def _make_data(self, *, slug="my-session", auto_title=None, custom_title=None):
+        return {
+            "meta": {"slug": slug, "id": "abc-123"},
+            "autoTitle": auto_title,
+            "customTitle": custom_title,
+        }
+
+    def test_custom_over_auto(self):
+        data = self._make_data(auto_title="AI Title", custom_title="Custom Title")
+        assert display_title(data) == "Custom Title"
+
+    def test_auto_over_slug(self):
+        data = self._make_data(slug="my-session", auto_title="AI Title")
+        assert display_title(data) == "AI Title"
+
+    def test_fallback_to_slug(self):
+        data = self._make_data(slug="my-session")
+        assert display_title(data) == "my-session"
+
+    def test_fallback_to_id_when_no_slug(self):
+        data = {"meta": {"id": "abc-123"}, "autoTitle": None, "customTitle": None}
+        assert display_title(data) == "abc-123"
+
+
+# ---------------------------------------------------------------------------
+# read_session — title and computed timestamp fields
+# ---------------------------------------------------------------------------
+
+class TestReadSessionTitleFields:
+    def test_auto_title_from_title_update(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_title_update(path, "Sprint review session", "anthropic/claude")
+        data = read_session(path)
+        assert data["autoTitle"] == "Sprint review session"
+
+    def test_custom_title_from_rename(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_rename(path, "My Custom Name")
+        data = read_session(path)
+        assert data["customTitle"] == "My Custom Name"
+
+    def test_last_write_wins_for_auto_title(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_title_update(path, "First title", "model-a")
+        append_title_update(path, "Second title", "model-b")
+        data = read_session(path)
+        assert data["autoTitle"] == "Second title"
+
+    def test_last_write_wins_for_rename(self, tmp_sessions_dir):
+        path = create_session("test")
+        append_rename(path, "First name")
+        append_rename(path, "Second name")
+        data = read_session(path)
+        assert data["customTitle"] == "Second name"
+
+    def test_updatedAt_is_mtime(self, tmp_sessions_dir):
+        path = create_session("test")
+        data = read_session(path)
+        assert data["updatedAt"] == pytest.approx(path.stat().st_mtime, abs=1.0)
+
+    def test_lastTranscriptAt_from_last_entry(self, tmp_sessions_dir):
+        path = create_session("test")
+        segs = [{"speaker": "Alice", "text": "Hello", "start": 0.0, "end": 1.0}]
+        append_transcript(path, segs, 1.0)
+        data = read_session(path)
+        assert data["lastTranscriptAt"] == data["transcripts"][-1]["timestamp"]
+
+    def test_no_transcripts_lastTranscriptAt_is_none(self, tmp_sessions_dir):
+        path = create_session("test")
+        data = read_session(path)
+        assert data["lastTranscriptAt"] is None

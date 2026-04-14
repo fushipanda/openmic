@@ -40,13 +40,16 @@ def create_session(name: str | None = None) -> Path:
             candidate = SESSIONS_DIR / f"{safe}_{counter}.jsonl"
             counter += 1
         session_path = candidate
+        slug = safe
     else:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
         session_path = SESSIONS_DIR / f"{timestamp}.jsonl"
+        slug = timestamp
 
     meta = {
         "type": "meta",
         "id": str(uuid.uuid4()),
+        "slug": slug,
         "name": name or session_path.stem,
         "created": _now(),
     }
@@ -94,6 +97,54 @@ def append_notes(session_path: Path, content: str, template: str) -> None:
     _append(session_path, entry)
 
 
+def append_title_update(session_path: Path, auto_title: str, model: str) -> None:
+    """Append an AI-generated title entry to the session.
+
+    Args:
+        session_path: Path to the session JSONL file.
+        auto_title: Short AI-generated title string.
+        model: Model identifier used to generate the title.
+    """
+    entry = {
+        "type": "title_update",
+        "id": str(uuid.uuid4()),
+        "timestamp": _now(),
+        "autoTitle": auto_title,
+        "model": model,
+    }
+    _append(session_path, entry)
+
+
+def append_rename(session_path: Path, custom_title: str) -> None:
+    """Append a user-defined rename entry to the session.
+
+    Args:
+        session_path: Path to the session JSONL file.
+        custom_title: User-provided display title.
+    """
+    entry = {
+        "type": "rename",
+        "id": str(uuid.uuid4()),
+        "timestamp": _now(),
+        "customTitle": custom_title,
+    }
+    _append(session_path, entry)
+
+
+def display_title(session_data: dict) -> str:
+    """Return the best available display title for a session.
+
+    Precedence: customTitle > autoTitle > slug > id > 'unknown'
+    """
+    return (
+        session_data.get("customTitle")
+        or session_data.get("autoTitle")
+        or session_data["meta"].get("slug")
+        or session_data["meta"].get("name")
+        or session_data["meta"].get("id", "unknown")
+    )
+
+
 def get_session_meta(session_path: Path) -> dict:
     """Read the meta entry (first line) from a session file.
 
@@ -112,9 +163,20 @@ def read_session(session_path: Path) -> dict:
     """Read all entries from a session file.
 
     Returns:
-        Dict with keys: "meta", "transcripts" (list), "notes" (list).
+        Dict with keys:
+          "meta", "transcripts" (list), "notes" (list),
+          "autoTitle" (str | None), "customTitle" (str | None),
+          "updatedAt" (float | None), "lastTranscriptAt" (str | None).
     """
-    result: dict = {"meta": {}, "transcripts": [], "notes": []}
+    result: dict = {
+        "meta": {},
+        "transcripts": [],
+        "notes": [],
+        "autoTitle": None,
+        "customTitle": None,
+        "updatedAt": None,
+        "lastTranscriptAt": None,
+    }
     try:
         with session_path.open(encoding="utf-8") as f:
             for line in f:
@@ -132,6 +194,15 @@ def read_session(session_path: Path) -> dict:
                     result["transcripts"].append(entry)
                 elif t == "notes":
                     result["notes"].append(entry)
+                elif t == "title_update":
+                    # Last title_update wins
+                    result["autoTitle"] = entry.get("autoTitle")
+                elif t == "rename":
+                    # Last rename wins
+                    result["customTitle"] = entry.get("customTitle")
+        result["updatedAt"] = session_path.stat().st_mtime
+        if result["transcripts"]:
+            result["lastTranscriptAt"] = result["transcripts"][-1].get("timestamp")
     except FileNotFoundError:
         pass
     return result
