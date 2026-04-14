@@ -1573,7 +1573,6 @@ async def repl_loop(ctx: ReplContext) -> None:
     def _accept(event):
         matches = _slash_matches()
         result = matches[_comp_idx[0]][0] if matches else buf.text
-        event.app.renderer.reset()
         event.app.exit(result=result)
 
     def _has_completions() -> bool:
@@ -1608,7 +1607,6 @@ async def repl_loop(ctx: ReplContext) -> None:
             _cycle(-1)
         else:
             # Quick-start recording shortcut
-            event.app.renderer.reset()
             event.app.exit(result="/start")
 
     # Arrow keys navigate completions when visible; fall through to emacs
@@ -1675,6 +1673,7 @@ async def repl_loop(ctx: ReplContext) -> None:
         style=Style.from_dict(OPENMIC_STYLE),
         full_screen=False,
         mouse_support=False,
+        erase_when_done=True,
     )
 
     _ctrl_c_warned = False
