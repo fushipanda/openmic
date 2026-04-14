@@ -358,7 +358,7 @@ def _arrow_select(rows: list[dict]) -> Any | None:
                 sys.stdout.write(f"    {DIM}{row['text']}{RESET}\n")
             else:
                 is_active = (i == active_row)
-                cur_mark = f"{TEAL}✓{RESET} " if row.get("current") and not is_active else "  "
+                cur_mark = f"{TEAL}●{RESET} " if row.get("current") and not is_active else "  "
                 prefix   = f"  {TEAL}→{RESET} " if is_active else "     "
                 primary  = f"{TEAL}{BOLD}{row['primary']}{RESET}" if is_active else row["primary"]
                 sec      = row.get("secondary", "")
@@ -451,6 +451,26 @@ def _format_duration(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
+def _relative_date(ts: float) -> str:
+    """Human-readable relative date from a Unix timestamp."""
+    try:
+        dt = datetime.fromtimestamp(ts)
+        today = date.today()
+        d = dt.date()
+        if d == today:
+            return "today"
+        if d == today - timedelta(days=1):
+            return "yesterday"
+        delta = (today - d).days
+        if delta < 7:
+            return dt.strftime("%A")   # e.g. "Monday"
+        if delta < 30:
+            return f"{delta} days ago"
+        return dt.strftime("%-d %b")   # e.g. "3 Jan"
+    except Exception:
+        return ""
+
+
 def _print_duration_bar(session_path: Path) -> None:
     """Print a duration bar for a session if it has recordings."""
     duration = session_duration_s(session_path)
@@ -473,37 +493,34 @@ def pick_session(sessions: list[Path], active: Path | None = None) -> Path | Non
         try:
             data = read_session(path)
             name = display_title(data).replace("_", " ")
-            created_str = data["meta"].get("created", "")
             n_recordings = len(data["transcripts"])
             has_notes = len(data["notes"]) > 0
+            updated_at = data.get("updatedAt") or path.stat().st_mtime
 
-            try:
-                dt = datetime.fromisoformat(created_str)
-                date_str = dt.strftime("%-d %b %Y")
-            except ValueError:
-                date_str = ""
-
-            indicator = "✓" if has_notes else "*"
+            relative = _relative_date(updated_at)
+            dur_s = session_duration_s(path)
+            dur_str = _format_duration(dur_s) if dur_s > 0 else ""
             rec_label = f"{n_recordings} recording{'s' if n_recordings != 1 else ''}"
-            primary = f"{indicator} {name}"
-            secondary = f"{date_str}  {rec_label}"
+
+            meta_parts = [p for p in [relative, rec_label, dur_str] if p]
+            if has_notes:
+                meta_parts.append("✓ notes")
+            secondary = "  ·  ".join(meta_parts)
+
             is_active = active is not None and path == active
-            if is_active:
-                primary = f"→ {name}"
         except Exception:
-            primary = path.stem
+            name = path.stem
             secondary = ""
             is_active = False
 
         rows.append({
             "kind": "item",
-            "primary": primary,
+            "primary": name,
             "secondary": secondary,
             "value": path,
             "current": is_active,
         })
 
-    console.print("[dim]  ✓ = has notes  * = no notes yet  → = active session[/]")
     try:
         return _arrow_select(rows)
     except KeyboardInterrupt:
