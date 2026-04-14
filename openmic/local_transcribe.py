@@ -29,7 +29,7 @@ def _get_whisper_model():
     """Load whisper.cpp model via pywhispercpp. Auto-downloads if needed."""
     from pywhispercpp.model import Model
 
-    model_size = os.environ.get("WHISPER_MODEL", "small.en")
+    model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
     return Model(model_size, n_threads=os.cpu_count() or 4, redirect_whispercpp_logs_to=os.devnull)
 
 
@@ -77,7 +77,7 @@ class LocalRealtimeTranscriber:
 
     def _get_model(self):
         if self._model is None:
-            model_size = os.environ.get("WHISPER_MODEL", "small.en")
+            model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
             if self.on_error:
                 self.on_error(f"Loading whisper model ({model_size})...")
             self._model = _get_whisper_model()

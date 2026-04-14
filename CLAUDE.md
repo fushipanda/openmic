@@ -38,12 +38,28 @@ Switch LLM provider: `openmic model` (or `/model` in REPL)
 
 - Python 3.12+
 - Rich — terminal output and formatting
+- prompt_toolkit — REPL input, completions, key bindings
 - ElevenLabs Python SDK — Scribe realtime (WebSocket) + batch transcription
 - pywhispercpp — local whisper.cpp transcription (no cloud)
 - LangChain — RAG querying and notes generation (model-agnostic, provider swappable)
 - Ollama (via langchain-ollama) — local LLM and embeddings
 - sounddevice — mic capture
 - FAISS — local vector store for RAG
+
+## CLI Architecture Notes
+
+- `app.py` is a lightweight CLI (Rich + prompt_toolkit). The Textual TUI has been removed.
+- The REPL uses a custom prompt_toolkit `Application` with a fixed `Layout` (HSplit:
+  separator → input → completions). This replaced `PromptSession` to allow the completions
+  window to be a managed peer of the input, not a floating popup.
+- **Completion navigation**: highlight index (`_comp_idx`) and viewport offset (`_view_offset`)
+  are decoupled from the buffer. Arrow keys move the highlight only; Enter submits the
+  highlighted command; Tab fills it into the buffer. `on_text_changed` resets the highlight
+  when the user types.
+- **Recording mode owns the terminal**: `recording_mode()` runs a bare `asyncio.sleep` loop —
+  the prompt_toolkit Application is NOT active during recording. REPL keybindings (including
+  Shift+Tab) cannot fire while recording. Any future "stop from shortcut" feature would require
+  recording_mode to use the pt Application for its input loop instead.
 
 ## .env Keys
 

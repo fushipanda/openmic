@@ -4,10 +4,11 @@
 # Audio files
 *.wav
 
-# Transcripts, notes, and recordings (user data)
+# Transcripts, notes, recordings, and sessions (user data)
 transcripts/
 notes/
 recordings/
+sessions/
 
 # Python
 __pycache__/
