@@ -174,8 +174,6 @@ HELP_COMMANDS = [
     ("/start [name]",    "Start a new recording session"),
     ("/record [name]",   "Start a new recording session"),
     ("/stop",            "Stop recording and run batch transcription"),
-    ("/pause",           "Pause recording"),
-    ("/resume",          "Resume a paused recording"),
     ("/history",         "Browse sessions and set the active session"),
     ("/sessions",        "Browse sessions and set the active session"),
     ("/transcript <n>",  "View a session by number or name"),
@@ -1164,7 +1162,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
                 console.print(f"[dim]Active session: {meta.get('name', ctx.active_session_path.stem)}[/]")
         return True
 
-    if cmd in ("/stop", "/pause", "/resume"):
+    if cmd == "/stop":
         console.print("[dim]Not currently recording. Use /start to begin.[/]")
         return True
 
