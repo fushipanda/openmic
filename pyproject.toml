@@ -1,7 +1,7 @@
 [project]
 name = "openmic"
-version = "0.2.0"
-description = "CLI/TUI meeting transcription tool with live preview, diarization, and RAG querying"
+version = "0.3.0"
+description = "Privacy-first CLI for capturing and structuring spoken thought — locally, with GPU-accelerated transcription"
 requires-python = ">=3.12"
 dependencies = [
     "sounddevice>=0.4.6",

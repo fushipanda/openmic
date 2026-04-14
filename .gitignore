@@ -28,6 +28,9 @@ ENV/
 # Claude Code
 .claude/
 
+# Internal docs
+BUILDING.md
+
 # IDE
 .idea/
 .vscode/

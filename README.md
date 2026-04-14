@@ -6,7 +6,7 @@
 
 > A privacy-first CLI for capturing and structuring spoken thought. Start a session, speak freely — OpenMic turns what you say into searchable, AI-ready data, entirely on your machine.
 
-[Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development)
+[Installation](#installation) • [Commands](#commands) • [Features](#features) • [Development](#development) • [Issues](https://github.com/fushipanda/openmic/issues) • [Releases](https://github.com/fushipanda/openmic/releases)
 
 ---
 
@@ -62,6 +62,8 @@ The `local` extra installs `faster-whisper` (GPU-accelerated transcription via C
 ### Transcription (no API key required)
 
 Transcription is handled locally by [faster-whisper](https://github.com/SYSTRAN/faster-whisper). The model downloads automatically on first use from Hugging Face and is cached at `~/.cache/huggingface/hub/`.
+
+Smaller models are faster but less accurate — larger models produce better transcripts but require more VRAM and take longer to load. See the [Whisper model comparison](https://github.com/openai/whisper#available-models-and-languages) for full benchmarks. `large-v3-turbo` is the default and recommended for GPU use.
 
 ```bash
 # In your .env or shell environment
@@ -306,23 +308,16 @@ OpenMic has **278 passing tests** covering:
 
 ## Platform Support
 
-| OS | Status | Notes |
-|----|----|-------|
-| Linux | Supported | Tested on Arch Linux |
-| macOS | Should work | Intel and Apple Silicon (untested) |
-| Windows | Untested | webrtcvad may require extra build steps |
+Developed and tested on Linux (Arch). macOS should work in principle but is untested. Windows is not currently supported.
 
 ---
 
-## How This Was Built
+## Roadmap
 
-I built OpenMic by looping [Claude Code](https://github.com/anthropics/claude-code) — giving it a feature list and bugs to fix in [CLAUDE.md](./CLAUDE.md), then iterating: Claude would implement a todo, I'd review it, and once tested it got pushed. The whole thing — from an empty directory to the current state (architecture, 278 tests, this README) — came out of that process.
-
-The driving idea was simple: spoken thought is the fastest way most people produce ideas, but it evaporates unless captured. OpenMic turns your voice into structured, queryable data — locally, so there's no question of where it ends up or who can access it.
-
-faster-whisper + webrtcvad gives sub-3-second latency with zero cloud calls, and GPU acceleration via CTranslate2 keeps inference fast without any model quality trade-off. The resulting transcripts are plain markdown — easy to feed into any AI system, embed, or search.
-
-I use this daily. Inspired in part by TUIs I've worked with recently, primarily [OpenCode](https://github.com/anomalyco/opencode/).
+- **Speech model quality** — improved transcription accuracy and robustness across accents, background noise, and speaking styles
+- **Speech model framework** — broader model support and easier model switching
+- **Ease of use** — smoother onboarding, better defaults, and reduced setup friction
+- **Privacy** — deeper local-first options and clearer data flow controls
 
 ---
 
