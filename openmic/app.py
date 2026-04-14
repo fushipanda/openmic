@@ -1632,14 +1632,13 @@ async def repl_loop(ctx: ReplContext) -> None:
     def _ctrl_d(event):
         event.app.exit(exception=EOFError)
 
-    # ── Layout: separator → input → completions (input at top, completions below) ──
+    # ── Layout: input → completions ──────────────────────────────────────────
+    # Separator is printed by the REPL loop (outside pt) so erase_when_done
+    # only clears input + completions, leaving the separator visible during
+    # command execution.
 
     layout = Layout(
         HSplit([
-            Window(
-                height=1,
-                content=FormattedTextControl(_sep_text, focusable=False),
-            ),
             Window(
                 content=BufferControl(
                     buffer=buf,
@@ -1682,6 +1681,10 @@ async def repl_loop(ctx: ReplContext) -> None:
         _comp_idx[0]    = 0
         _view_offset[0] = 0
         buf.reset()
+        # Print separator here (outside pt) so erase_when_done only clears
+        # input + completions — separator stays visible during command execution.
+        cols = shutil.get_terminal_size((80, 24)).columns
+        console.print(f"[{TEAL_DIM}]{'─' * cols}[/]")
         try:
             cmd = await app.run_async()
             _ctrl_c_warned = False
@@ -1695,8 +1698,6 @@ async def repl_loop(ctx: ReplContext) -> None:
         except EOFError:
             console.print("\n[dim]Goodbye![/]")
             break
-        cols = shutil.get_terminal_size((80, 24)).columns
-        console.print(f"[{TEAL_DIM}]{'─' * cols}[/]")
         running = await handle_command(cmd.strip(), ctx)
         if not running:
             console.print("[dim]Goodbye![/]")
