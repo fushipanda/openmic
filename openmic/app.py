@@ -696,12 +696,51 @@ async def _spinner_task(label: str, done: asyncio.Event) -> None:
 
 
 async def _with_spinner(label: str, fn):
-    """Run fn() in a thread executor while showing a braille spinner."""
+    """Run fn() in a thread executor while showing a braille spinner.
+
+    Escape or Ctrl+C cancels the await immediately (the underlying thread
+    finishes in the background — see note in _run below).
+    """
     done = asyncio.Event()
     spin = asyncio.create_task(_spinner_task(label, done))
     loop = asyncio.get_event_loop()
-    try:
+
+    # Wrap in a Task (not a bare Future) so task.cancel() interrupts the await
+    # at the next event-loop tick, even while the thread is still running.
+    async def _run():
         return await loop.run_in_executor(None, fn)
+
+    task = asyncio.create_task(_run())
+
+    # Listen for Escape on stdin using setcbreak (single-char reads; SIGINT still works).
+    fd: int | None = None
+    old_settings = None
+    try:
+        fd = sys.stdin.fileno()
+        if not os.isatty(fd):
+            fd = None
+    except Exception:
+        fd = None
+
+    if fd is not None:
+        try:
+            old_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+
+            def _on_key() -> None:
+                try:
+                    ch = os.read(fd, 32)
+                except OSError:
+                    return
+                if b"\x1b" in ch:  # Escape
+                    task.cancel()
+
+            loop.add_reader(fd, _on_key)
+        except Exception:
+            fd = None
+
+    try:
+        return await task
     except (asyncio.CancelledError, KeyboardInterrupt):
         done.set()
         spin.cancel()
@@ -716,6 +755,12 @@ async def _with_spinner(label: str, fn):
         done.set()
         if not spin.done():
             await spin
+        if fd is not None:
+            loop.remove_reader(fd)
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
