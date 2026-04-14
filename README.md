@@ -337,6 +337,12 @@ I use this daily. Inspired in part by TUIs I've worked with recently, primarily 
 
 ---
 
+## Contributing
+
+OpenMic is currently in active solo development. Bug reports and feature requests via [GitHub Issues](https://github.com/fushipanda/openmic/issues) are welcome. The project will open to external contributions once it reaches a stable base. Watch the repo to stay updated.
+
+---
+
 ## License
 
 MIT License — See [LICENSE](./LICENSE) file for details.
