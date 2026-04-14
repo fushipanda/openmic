@@ -1,6 +1,6 @@
 [project]
 name = "openmic"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI/TUI meeting transcription tool with live preview, diarization, and RAG querying"
 requires-python = ">=3.12"
 dependencies = [

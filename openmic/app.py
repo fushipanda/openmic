@@ -272,12 +272,33 @@ class ReplContext:
 # Display helpers
 # ---------------------------------------------------------------------------
 
+_TIPS = [
+    "Type a question directly — no /query needed.",
+    "Use /resume to jump straight into a session from the terminal.",
+    "/notes <template> regenerates notes in a different format — try 'technical' or 'executive'.",
+    "Mention a session with @name in a question to search just that session.",
+    "Press Escape to cancel a running query or notes generation.",
+    "/regen regenerates notes for the current session using the same template.",
+    "/delete opens the session picker to permanently remove a session.",
+    "openmic record [name] starts a recording immediately from the terminal.",
+    "/rename gives the active session a cleaner display title.",
+    "/clear exits the active session and wipes the screen back to a clean state.",
+    "/model switches your LLM provider mid-session — changes take effect immediately.",
+    "Ctrl+C during recording stops it and runs batch transcription automatically.",
+    "/notes copy puts the latest notes straight on your clipboard.",
+    "/notes export html produces email-ready formatted output.",
+    "Questions remember context — ask follow-ups without repeating yourself.",
+]
+
+
 def print_banner() -> None:
-    """Print ASCII banner and tagline."""
+    """Print ASCII banner and a random tip."""
+    import random
     from openmic.version import get_version
     console.print(f"[bold #00d4aa]{BANNER}[/]")
     console.print()
-    console.print(f"[dim italic]voice → text → insight[/]  [dim]v{get_version()}[/]")
+    tip = random.choice(_TIPS)
+    console.print(f"[dim]tip  {tip}[/]  [dim]v{get_version()}[/]")
     console.print()
 
 
