@@ -181,6 +181,8 @@ HELP_COMMANDS = [
     ("/transcript <n>",  "View a session by number or name"),
     ("/query <question>","Ask a question across all transcripts"),
     ("/notes",           "Generate notes (with template selection)"),
+    ("/notes copy",      "Copy latest notes to clipboard"),
+    ("/notes export",    "Export latest notes to a markdown file"),
     ("/regen",           "Regenerate notes using the saved template"),
     ("/model",           "Select LLM provider and model"),
     ("/transcribe",      "Select Whisper model size"),
@@ -848,6 +850,40 @@ async def _do_notes(ctx: ReplContext, force_regen: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Notes copy / export helpers
+# ---------------------------------------------------------------------------
+
+def _get_notes_session(ctx: ReplContext) -> Path | None:
+    """Return active session path, or None if unavailable (prints error)."""
+    if ctx.active_session_path and ctx.active_session_path.exists():
+        return ctx.active_session_path
+    console.print("[red]No active session. Use /sessions to select one.[/]")
+    return None
+
+
+def _latest_notes_content(session_path: Path) -> str | None:
+    """Return the most recent notes content for a session, or None if absent."""
+    data = read_session(session_path)
+    notes = data.get("notes", [])
+    return notes[-1].get("content") if notes else None
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
+
+    Returns True on success, False if no clipboard tool is available.
+    """
+    import subprocess
+    for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        try:
+            subprocess.run(cmd, input=text.encode(), check=True)
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Session title generation helpers
 # ---------------------------------------------------------------------------
 
@@ -1109,6 +1145,32 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         return True
 
     # --- Notes ---
+    if cmd == "/notes copy":
+        session_path = _get_notes_session(ctx)
+        if session_path:
+            content = _latest_notes_content(session_path)
+            if not content:
+                console.print("[dim]No notes yet. Run /notes to generate them first.[/]")
+            elif _copy_to_clipboard(content):
+                console.print("[dim]Notes copied to clipboard.[/]")
+            else:
+                console.print("[red]No clipboard tool found (wl-copy or xclip required).[/]")
+        return True
+
+    if cmd == "/notes export":
+        session_path = _get_notes_session(ctx)
+        if session_path:
+            content = _latest_notes_content(session_path)
+            if not content:
+                console.print("[dim]No notes yet. Run /notes to generate them first.[/]")
+            else:
+                meta = get_session_meta(session_path)
+                slug = meta.get("slug") or meta.get("name") or session_path.stem
+                export_path = Path.home() / f"{slug}_notes.md"
+                export_path.write_text(content, encoding="utf-8")
+                console.print(f"[dim]Notes exported to: {export_path}[/]")
+        return True
+
     if cmd == "/notes":
         await _do_notes(ctx, force_regen=False)
         return True
