@@ -182,13 +182,12 @@ class LocalRealtimeTranscriber:
                     self.on_error(f"Transcription error: {e}")
                 await asyncio.sleep(0.5)
 
-        # Flush remaining buffer
+        # Flush remaining buffer — synchronous: runs once at shutdown, blocking is fine
         if buffer:
             try:
                 duration_s = len(buffer) / (self.SAMPLE_RATE * 2)
                 self._dbg(f"Shutdown flush: {duration_s:.1f}s remaining → whisper")
-                loop = asyncio.get_event_loop()
-                text = await loop.run_in_executor(None, self._transcribe_audio, bytes(buffer))
+                text = self._transcribe_audio(bytes(buffer))
                 self._dbg(f"Whisper returned: {repr(text[:80]) if text else '(empty)'}")
                 if text and text.strip() and self.on_committed:
                     self.on_committed(text.strip())
