@@ -194,6 +194,52 @@ class LocalRealtimeTranscriber:
             except Exception:
                 pass
 
+    async def _calibrate_noise_floor(self) -> int:
+        """Sample ~1s of audio to measure ambient noise floor, return a threshold above it.
+
+        Collects up to 33 frames (≈1s), computes per-frame RMS, uses the 90th percentile
+        as the noise floor estimate, then sets threshold = max(200, floor * 2).
+        Logs the result so the user can override with WHISPER_VAD_ENERGY_THRESHOLD.
+        """
+        _CALIB_FRAMES = 33  # ~1 second at 30ms per frame
+        rms_values: list[float] = []
+        deadline = asyncio.get_event_loop().time() + 1.5  # wait at most 1.5s
+
+        calib_buffer = bytearray()
+        while len(rms_values) < _CALIB_FRAMES and asyncio.get_event_loop().time() < deadline and self._running:
+            try:
+                while True:
+                    calib_buffer.extend(self._audio_queue.get_nowait())
+            except queue.Empty:
+                pass
+
+            while len(calib_buffer) >= _VAD_FRAME_BYTES:
+                frame = calib_buffer[:_VAD_FRAME_BYTES]
+                del calib_buffer[:_VAD_FRAME_BYTES]
+                arr = np.frombuffer(bytes(frame), dtype=np.int16).astype(np.float32)
+                rms_values.append(float(np.sqrt(np.mean(arr ** 2))))
+                if len(rms_values) >= _CALIB_FRAMES:
+                    break
+
+            await asyncio.sleep(0.03)
+
+        if rms_values:
+            rms_values.sort()
+            p90 = rms_values[int(len(rms_values) * 0.9)]
+            threshold = max(_VAD_ENERGY_DEFAULT, int(p90 * 2))
+        else:
+            p90 = 0.0
+            threshold = _VAD_ENERGY_DEFAULT
+
+        self._dbg(
+            f"VAD noise calibration: floor≈{p90:.0f} RMS → threshold={threshold} "
+            f"(set WHISPER_VAD_ENERGY_THRESHOLD to override)"
+        )
+        # Put calibration audio back so it isn't lost
+        if calib_buffer:
+            self._audio_queue.put(bytes(calib_buffer))
+        return threshold
+
     async def _vad_transcribe_loop(self, vad, silence_ms: int) -> None:
         """Transcription loop gated by webrtcvad speech-boundary detection.
 
@@ -202,7 +248,14 @@ class LocalRealtimeTranscriber:
         is detected after speech, rather than waiting for a fixed time interval.
         """
         silence_threshold = max(1, silence_ms // _VAD_FRAME_MS)
-        energy_threshold  = int(os.environ.get("WHISPER_VAD_ENERGY_THRESHOLD", _VAD_ENERGY_DEFAULT))
+
+        # Auto-calibrate noise floor from the first second of audio unless overridden
+        manual_threshold = os.environ.get("WHISPER_VAD_ENERGY_THRESHOLD")
+        if manual_threshold:
+            energy_threshold = int(manual_threshold)
+            self._dbg(f"VAD energy threshold: {energy_threshold} (manual)")
+        else:
+            energy_threshold = await self._calibrate_noise_floor()
 
         rolling_buffer    = bytearray()
         bytes_processed   = 0
@@ -211,8 +264,6 @@ class LocalRealtimeTranscriber:
         _dbg_frames_total  = 0
         _dbg_frames_speech = 0
         _dbg_last_report   = 0    # frames since last periodic status
-
-        self._dbg(f"VAD energy threshold: {energy_threshold} (WHISPER_VAD_ENERGY_THRESHOLD to adjust)")
 
         while self._running:
             try:

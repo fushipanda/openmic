@@ -87,6 +87,10 @@ def _run_vad_loop(transcriber, vad, silence_ms, audio_chunks, run_seconds=0.3):
         transcriber._running = True
         for chunk in audio_chunks:
             transcriber._audio_queue.put(chunk)
+        # Bypass noise-floor calibration in tests — return fixed threshold immediately
+        async def _fixed_threshold():
+            return 0
+        transcriber._calibrate_noise_floor = _fixed_threshold
         task = asyncio.create_task(
             transcriber._vad_transcribe_loop(vad, silence_ms)
         )
