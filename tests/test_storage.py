@@ -16,8 +16,6 @@ from openmic.storage import (
     list_transcripts,
     save_notes,
     format_transcript_title,
-    list_recordings,
-    delete_all_recordings,
 )
 
 
@@ -194,43 +192,3 @@ class TestFormatTranscriptTitle:
         assert "not-a-date" in title
 
 
-class TestListRecordings:
-    def test_empty(self, isolated_storage):
-        assert list_recordings() == []
-
-    def test_returns_wav_files(self, isolated_storage):
-        _, _, recordings_dir = isolated_storage
-        recordings_dir.mkdir(parents=True, exist_ok=True)
-        (recordings_dir / "2026-01-01_10-00.wav").write_bytes(b"\x00" * 100)
-        (recordings_dir / "2026-01-02_14-30.wav").write_bytes(b"\x00" * 200)
-
-        result = list_recordings()
-        assert len(result) == 2
-        assert result[0].name == "2026-01-02_14-30.wav"
-
-    def test_ignores_non_wav(self, isolated_storage):
-        _, _, recordings_dir = isolated_storage
-        recordings_dir.mkdir(parents=True, exist_ok=True)
-        (recordings_dir / "2026-01-01_10-00.wav").write_bytes(b"\x00" * 100)
-        (recordings_dir / "notes.txt").write_text("not a wav")
-
-        result = list_recordings()
-        assert len(result) == 1
-
-
-class TestDeleteAllRecordings:
-    def test_delete_all(self, isolated_storage):
-        _, _, recordings_dir = isolated_storage
-        recordings_dir.mkdir(parents=True, exist_ok=True)
-        (recordings_dir / "a.wav").write_bytes(b"\x00" * 1024)
-        (recordings_dir / "b.wav").write_bytes(b"\x00" * 2048)
-
-        count, total_bytes = delete_all_recordings()
-        assert count == 2
-        assert total_bytes == 3072
-        assert list_recordings() == []
-
-    def test_delete_empty(self, isolated_storage):
-        count, total_bytes = delete_all_recordings()
-        assert count == 0
-        assert total_bytes == 0

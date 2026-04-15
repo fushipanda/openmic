@@ -1470,23 +1470,18 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             _maybe_delete_wav(returned_wav)
             return active
         else:
-            # Prompt for a name if none supplied
-            if not session_name:
-                try:
-                    name = input("Name this session (Enter to skip): ").strip()
-                    session_name = name if name else None
-                except KeyboardInterrupt:
-                    pass
-
             session_path = create_session(session_name)
             session_append_transcript(session_path, segments, duration_s)
+            if session_name:
+                append_rename(session_path, session_name.replace("_", " "))
             if ctx:
                 ctx.active_session_path = session_path
-                ctx.active_session_name = session_name or session_path.stem
+                ctx.active_session_name = session_path.stem
             data = read_session(session_path)
-            console.print(f"[dim]Session created: {display_title(data).replace('_', ' ')}[/]")
-            # Fire background title generation
-            asyncio.create_task(_background_title_gen(session_path))
+            console.print(f"[dim]Session created: {display_title(data)}[/]")
+            # Fire background title generation only if user hasn't named the session
+            if data.get("customTitle") is None:
+                asyncio.create_task(_background_title_gen(session_path))
             _maybe_delete_wav(returned_wav)
             return session_path
 
@@ -1524,8 +1519,8 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             ctx.chatting = False
             # Show active session reminder after recording
             if ctx.active_session_path:
-                meta = get_session_meta(ctx.active_session_path)
-                console.print(f"[dim]Active session: {meta.get('name', ctx.active_session_path.stem)}[/]")
+                data = read_session(ctx.active_session_path)
+                console.print(f"[dim]Active session: {display_title(data)}[/]")
         return True
 
     if cmd == "/stop":

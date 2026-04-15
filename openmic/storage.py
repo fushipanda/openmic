@@ -154,29 +154,3 @@ def save_notes(content: str, transcript_path: Path, template_id: str = "default"
     notes_path = NOTES_DIR / notes_filename
     notes_path.write_text(content)
     return notes_path
-
-
-def list_recordings() -> list[Path]:
-    """List all WAV recording files.
-
-    Returns:
-        List of recording file paths, sorted newest first
-    """
-    ensure_dirs()
-    return sorted(RECORDINGS_DIR.glob("*.wav"), reverse=True)
-
-
-def delete_all_recordings() -> tuple[int, int]:
-    """Delete all saved recordings.
-
-    Returns:
-        Tuple of (count of files deleted, total bytes freed)
-    """
-    recordings = list_recordings()
-    total_bytes = 0
-    count = 0
-    for rec in recordings:
-        total_bytes += rec.stat().st_size
-        rec.unlink()
-        count += 1
-    return count, total_bytes

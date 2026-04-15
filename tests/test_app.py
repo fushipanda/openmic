@@ -406,13 +406,6 @@ class TestHandleCommand:
         assert os.environ.get("LLM_PROVIDER") == "anthropic"
         assert os.environ.get("LLM_MODEL") == "claude-sonnet-4-6"
 
-    def test_cleanup_recordings_no_recordings(self, capsys):
-        ctx = _make_ctx()
-        with patch("openmic.app.list_recordings", return_value=[]):
-            asyncio.run(handle_command("/cleanup-recordings", ctx))
-        out = capsys.readouterr().out
-        assert "No recordings" in out
-
     def test_sessions_no_sessions(self, capsys):
         ctx = _make_ctx()
         with patch("openmic.app.list_sessions", return_value=[]):

@@ -46,13 +46,14 @@ class TestCreateSession:
         assert path.suffix == ".jsonl"
         assert "standup" in path.name
 
-    def test_unnamed_session_uses_timestamp(self, tmp_sessions_dir):
+    def test_unnamed_session_uses_friendly_slug(self, tmp_sessions_dir):
         path = create_session()
         assert path.exists()
-        # Filename should match YYYY-MM-DD_HH-MM pattern
+        # Filename should be a friendly coolname slug (multi-word, lowercase alpha, hyphen-separated)
         stem = path.stem
-        assert len(stem) == 16
-        assert stem[4] == "-" and stem[7] == "-" and stem[10] == "_"
+        parts = stem.split("-")
+        assert len(parts) >= 2, f"Expected multi-word slug, got: {stem}"
+        assert all(p.isalpha() for p in parts), f"Slug parts should be alphabetic, got: {stem}"
 
     def test_meta_entry_written(self, tmp_sessions_dir):
         path = create_session("weekly")
@@ -290,12 +291,12 @@ class TestCreateSessionSlug:
         meta = json.loads(path.read_text().splitlines()[0])
         assert meta["slug"] == path.stem
 
-    def test_slug_is_timestamp_pattern_for_unnamed(self, tmp_sessions_dir):
+    def test_slug_is_friendly_multi_word_for_unnamed(self, tmp_sessions_dir):
         path = create_session()
         meta = json.loads(path.read_text().splitlines()[0])
-        # YYYY-MM-DD_HH-MM
-        assert len(meta["slug"]) == 16
-        assert meta["slug"][4] == "-" and meta["slug"][7] == "-" and meta["slug"][10] == "_"
+        parts = meta["slug"].split("-")
+        assert len(parts) >= 2, f"Expected multi-word slug, got: {meta['slug']}"
+        assert all(p.isalpha() for p in parts), f"Slug parts should be alphabetic, got: {meta['slug']}"
 
     def test_slug_unchanged_on_collision(self, tmp_sessions_dir):
         p1 = create_session("standup")
@@ -375,7 +376,7 @@ class TestDisplayTitle:
 
     def test_fallback_to_slug(self):
         data = self._make_data(slug="my-session")
-        assert display_title(data) == "my-session"
+        assert display_title(data) == "my session"
 
     def test_fallback_to_id_when_no_slug(self):
         data = {"meta": {"id": "abc-123"}, "autoTitle": None, "customTitle": None}

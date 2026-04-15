@@ -10,6 +10,12 @@ from openmic.storage import _PROJECT_ROOT, _sanitize_name
 SESSIONS_DIR = _PROJECT_ROOT / "sessions"
 
 
+def _random_slug() -> str:
+    """Generate a friendly three-word slug for unnamed sessions (e.g. 'calm-silver-ridge')."""
+    from coolname import generate_slug
+    return generate_slug(3)
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -42,9 +48,14 @@ def create_session(name: str | None = None) -> Path:
         session_path = candidate
         slug = safe
     else:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        session_path = SESSIONS_DIR / f"{timestamp}.jsonl"
-        slug = timestamp
+        slug = _random_slug()
+        candidate = SESSIONS_DIR / f"{slug}.jsonl"
+        attempts = 0
+        while candidate.exists() and attempts < 20:
+            slug = _random_slug()
+            candidate = SESSIONS_DIR / f"{slug}.jsonl"
+            attempts += 1
+        session_path = candidate
 
     meta = {
         "type": "meta",
@@ -134,14 +145,15 @@ def append_rename(session_path: Path, custom_title: str) -> None:
 def display_title(session_data: dict) -> str:
     """Return the best available display title for a session.
 
-    Precedence: customTitle > autoTitle > slug > id > 'unknown'
+    Precedence: customTitle > autoTitle > slug (humanised) > name > id
     """
+    slug = session_data["meta"].get("slug", "")
+    name = session_data["meta"].get("name", "")
+    fallback = slug.replace("-", " ") if slug else (name or session_data["meta"].get("id", "unknown"))
     return (
         session_data.get("customTitle")
         or session_data.get("autoTitle")
-        or session_data["meta"].get("slug")
-        or session_data["meta"].get("name")
-        or session_data["meta"].get("id", "unknown")
+        or fallback
     )
 
 
