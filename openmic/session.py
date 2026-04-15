@@ -149,7 +149,7 @@ def display_title(session_data: dict) -> str:
     """
     slug = session_data["meta"].get("slug", "")
     name = session_data["meta"].get("name", "")
-    fallback = slug.replace("-", " ") if slug else (name or session_data["meta"].get("id", "unknown"))
+    fallback = slug if slug else (name or session_data["meta"].get("id", "unknown"))
     return (
         session_data.get("customTitle")
         or session_data.get("autoTitle")

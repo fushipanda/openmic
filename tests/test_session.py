@@ -376,7 +376,7 @@ class TestDisplayTitle:
 
     def test_fallback_to_slug(self):
         data = self._make_data(slug="my-session")
-        assert display_title(data) == "my session"
+        assert display_title(data) == "my-session"
 
     def test_fallback_to_id_when_no_slug(self):
         data = {"meta": {"id": "abc-123"}, "autoTitle": None, "customTitle": None}
