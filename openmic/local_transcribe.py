@@ -225,14 +225,17 @@ class LocalRealtimeTranscriber:
 
         if rms_values:
             rms_values.sort()
-            p90 = rms_values[int(len(rms_values) * 0.9)]
-            threshold = max(_VAD_ENERGY_DEFAULT, int(p90 * 2))
+            # Use median as noise floor estimate — more robust than p90 to transient bumps
+            median_rms = rms_values[len(rms_values) // 2]
+            # 1.5x gives headroom over noise while staying below typical speech (3-5x floor)
+            # Cap at 800 so we never accidentally silence real speech
+            threshold = min(800, max(_VAD_ENERGY_DEFAULT, int(median_rms * 1.5)))
         else:
-            p90 = 0.0
+            median_rms = 0.0
             threshold = _VAD_ENERGY_DEFAULT
 
         self._dbg(
-            f"VAD noise calibration: floor≈{p90:.0f} RMS → threshold={threshold} "
+            f"VAD noise calibration: floor≈{median_rms:.0f} RMS → threshold={threshold} "
             f"(set WHISPER_VAD_ENERGY_THRESHOLD to override)"
         )
         # Put calibration audio back so it isn't lost
