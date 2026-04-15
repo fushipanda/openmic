@@ -268,11 +268,25 @@ class LocalRealtimeTranscriber:
     def _transcribe_audio(self, audio_bytes: bytes) -> str:
         model = self._get_model()
         samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        segments, _ = model.transcribe(
-            samples, language="en", beam_size=5,
-            no_speech_threshold=0.3, vad_filter=False,
-        )
-        return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
+        try:
+            segments, _ = model.transcribe(
+                samples, language="en", beam_size=5,
+                no_speech_threshold=0.3, vad_filter=False,
+            )
+            return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
+        except Exception as e:
+            err = str(e).lower()
+            if "cuda" in err or "cublas" in err or "libcu" in err:
+                # CUDA runtime unavailable — reinitialise on CPU and retry once
+                from faster_whisper import WhisperModel
+                model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
+                self._model = WhisperModel(model_size, device="cpu", compute_type="int8")
+                segments, _ = self._model.transcribe(
+                    samples, language="en", beam_size=5,
+                    no_speech_threshold=0.3, vad_filter=False,
+                )
+                return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
+            raise
 
     @property
     def is_connected(self) -> bool:
@@ -292,9 +306,19 @@ class LocalBatchTranscriber:
 
     def transcribe_file(self, audio_path: str, num_speakers: int = 10) -> "LocalResult":
         model = self._get_model()
-        segments, _ = model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3)
+        try:
+            raw_segments, _ = model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3)
+        except Exception as e:
+            err = str(e).lower()
+            if "cuda" in err or "cublas" in err or "libcu" in err:
+                from faster_whisper import WhisperModel
+                model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
+                self._model = WhisperModel(model_size, device="cpu", compute_type="int8")
+                raw_segments, _ = self._model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3)
+            else:
+                raise
         words = []
-        for seg in segments:
+        for seg in raw_segments:
             text = seg.text.strip()
             if text:
                 words.append(_Word(
