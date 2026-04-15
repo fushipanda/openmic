@@ -74,8 +74,11 @@ def _make_transcriber(fake_model=None, committed=None):
 
 
 def _make_audio(n_frames: int) -> bytes:
-    """Return n_frames worth of silent 16-bit PCM audio bytes."""
-    return bytes(_VAD_FRAME_BYTES * n_frames)
+    """Return n_frames worth of 16-bit PCM audio with enough energy to pass the RMS gate."""
+    import numpy as np
+    n_samples = (_VAD_FRAME_BYTES * n_frames) // 2
+    samples = np.full(n_samples, 1000, dtype=np.int16)
+    return samples.tobytes()
 
 
 def _run_vad_loop(transcriber, vad, silence_ms, audio_chunks, run_seconds=0.3):

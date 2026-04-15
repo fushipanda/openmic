@@ -14,6 +14,9 @@ _VAD_FRAME_BYTES   = _VAD_FRAME_SAMPLES * 2           # 960 bytes (int16)
 _BYTES_PER_SAMPLE  = 2
 _MAX_SPEECH_BYTES  = 16000 * _BYTES_PER_SAMPLE * 30  # 30s safety ceiling
 _MAX_IDLE_BYTES    = 16000 * _BYTES_PER_SAMPLE * 35  # 35s before idle trim
+# RMS energy gate: frames below this level are treated as silence before webrtcvad sees them.
+# Tunes out mic self-noise / fan hiss that fools webrtcvad. Range 0–32768 (16-bit audio).
+_VAD_ENERGY_DEFAULT = 200
 
 
 def _get_whisper_model():
@@ -199,6 +202,7 @@ class LocalRealtimeTranscriber:
         is detected after speech, rather than waiting for a fixed time interval.
         """
         silence_threshold = max(1, silence_ms // _VAD_FRAME_MS)
+        energy_threshold  = int(os.environ.get("WHISPER_VAD_ENERGY_THRESHOLD", _VAD_ENERGY_DEFAULT))
 
         rolling_buffer    = bytearray()
         bytes_processed   = 0
@@ -207,6 +211,8 @@ class LocalRealtimeTranscriber:
         _dbg_frames_total  = 0
         _dbg_frames_speech = 0
         _dbg_last_report   = 0    # frames since last periodic status
+
+        self._dbg(f"VAD energy threshold: {energy_threshold} (WHISPER_VAD_ENERGY_THRESHOLD to adjust)")
 
         while self._running:
             try:
@@ -222,7 +228,13 @@ class LocalRealtimeTranscriber:
                     frame = rolling_buffer[bytes_processed : bytes_processed + _VAD_FRAME_BYTES]
                     bytes_processed += _VAD_FRAME_BYTES
 
-                    is_speech = vad.is_speech(bytes(frame), sample_rate=self.SAMPLE_RATE)
+                    # RMS energy gate — reject frames too quiet to be speech
+                    frame_np = np.frombuffer(bytes(frame), dtype=np.int16)
+                    rms = np.sqrt(np.mean(frame_np.astype(np.float32) ** 2))
+                    if rms < energy_threshold:
+                        is_speech = False
+                    else:
+                        is_speech = vad.is_speech(bytes(frame), sample_rate=self.SAMPLE_RATE)
                     _dbg_frames_total += 1
                     if is_speech:
                         _dbg_frames_speech += 1
@@ -317,7 +329,7 @@ class LocalRealtimeTranscriber:
         try:
             segments, _ = model.transcribe(
                 samples, language="en", beam_size=5,
-                no_speech_threshold=0.3, vad_filter=False,
+                no_speech_threshold=0.3, vad_filter=True,
             )
             return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
         except Exception as e:
@@ -353,14 +365,14 @@ class LocalBatchTranscriber:
     def transcribe_file(self, audio_path: str, num_speakers: int = 10) -> "LocalResult":
         model = self._get_model()
         try:
-            raw_segments, _ = model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3)
+            raw_segments, _ = model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3, vad_filter=True)
         except Exception as e:
             err = str(e).lower()
             if "cuda" in err or "cublas" in err or "libcu" in err:
                 from faster_whisper import WhisperModel
                 model_size = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
                 self._model = WhisperModel(model_size, device="cpu", compute_type="int8")
-                raw_segments, _ = self._model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3)
+                raw_segments, _ = self._model.transcribe(audio_path, language="en", beam_size=5, no_speech_threshold=0.3, vad_filter=True)
             else:
                 raise
         words = []
