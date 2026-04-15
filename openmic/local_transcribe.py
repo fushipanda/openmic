@@ -81,6 +81,10 @@ class LocalRealtimeTranscriber:
             self._model = _get_whisper_model()
         return self._model
 
+    def _dbg(self, msg: str) -> None:
+        if self.on_debug:
+            self.on_debug(msg)
+
     async def connect(self) -> None:
         """Start the local transcription loop, using VAD if webrtcvad is available."""
         self._running = True
@@ -99,10 +103,12 @@ class LocalRealtimeTranscriber:
 
         if vad is not None:
             silence_ms = int(os.environ.get("WHISPER_VAD_SILENCE_MS", "600"))
+            self._dbg(f"VAD loop: aggressiveness={aggressiveness}, silence_ms={silence_ms}")
             self._transcribe_task = asyncio.create_task(
                 self._vad_transcribe_loop(vad, silence_ms)
             )
         else:
+            self._dbg("Fixed-interval loop (VAD disabled), interval=10s")
             self._transcribe_task = asyncio.create_task(self._transcribe_loop())
 
     async def disconnect(self) -> None:
@@ -144,6 +150,8 @@ class LocalRealtimeTranscriber:
                     pass
 
                 if len(buffer) >= bytes_per_interval:
+                    duration_s = len(buffer) / (self.SAMPLE_RATE * 2)
+                    self._dbg(f"Fixed flush: {duration_s:.1f}s buffered → whisper")
                     audio_data = bytes(buffer)
                     buffer.clear()
 
@@ -151,6 +159,7 @@ class LocalRealtimeTranscriber:
                     text = await loop.run_in_executor(
                         None, self._transcribe_audio, audio_data
                     )
+                    self._dbg(f"Whisper returned: {repr(text[:80]) if text else '(empty)'}")
                     if text and text.strip():
                         if self.on_committed:
                             self.on_committed(text.strip())
@@ -167,7 +176,10 @@ class LocalRealtimeTranscriber:
         # Flush remaining buffer
         if buffer:
             try:
+                duration_s = len(buffer) / (self.SAMPLE_RATE * 2)
+                self._dbg(f"Shutdown flush: {duration_s:.1f}s remaining → whisper")
                 text = self._transcribe_audio(bytes(buffer))
+                self._dbg(f"Whisper returned: {repr(text[:80]) if text else '(empty)'}")
                 if text and text.strip() and self.on_committed:
                     self.on_committed(text.strip())
             except Exception:
@@ -186,6 +198,9 @@ class LocalRealtimeTranscriber:
         bytes_processed   = 0
         speech_start_byte = None   # None = currently in silence
         silence_frames    = 0
+        _dbg_frames_total  = 0
+        _dbg_frames_speech = 0
+        _dbg_last_report   = 0    # frames since last periodic status
 
         while self._running:
             try:
@@ -202,11 +217,25 @@ class LocalRealtimeTranscriber:
                     bytes_processed += _VAD_FRAME_BYTES
 
                     is_speech = vad.is_speech(bytes(frame), sample_rate=self.SAMPLE_RATE)
+                    _dbg_frames_total += 1
+                    if is_speech:
+                        _dbg_frames_speech += 1
+
+                    # Periodic status every ~3s (100 frames × 30ms)
+                    if _dbg_frames_total - _dbg_last_report >= 100:
+                        pct = 100 * _dbg_frames_speech / _dbg_frames_total
+                        self._dbg(
+                            f"VAD: {_dbg_frames_total} frames, "
+                            f"{_dbg_frames_speech} speech ({pct:.0f}%), "
+                            f"in_speech={'yes' if speech_start_byte is not None else 'no'}"
+                        )
+                        _dbg_last_report = _dbg_frames_total
 
                     if is_speech:
                         silence_frames = 0
                         if speech_start_byte is None:
                             speech_start_byte = bytes_processed - _VAD_FRAME_BYTES
+                            self._dbg(f"VAD: speech start detected at frame {_dbg_frames_total}")
                     else:
                         if speech_start_byte is not None:
                             silence_frames += 1
@@ -214,6 +243,8 @@ class LocalRealtimeTranscriber:
                                 # Speech ended — extract segment without trailing silence
                                 speech_end = bytes_processed - (silence_frames * _VAD_FRAME_BYTES)
                                 segment = bytes(rolling_buffer[speech_start_byte : speech_end])
+                                duration_s = len(segment) / (self.SAMPLE_RATE * _BYTES_PER_SAMPLE)
+                                self._dbg(f"VAD: speech end → flushing {duration_s:.2f}s to whisper")
                                 speech_start_byte = None
                                 silence_frames    = 0
                                 del rolling_buffer[:bytes_processed]
@@ -224,6 +255,7 @@ class LocalRealtimeTranscriber:
                                     text = await loop.run_in_executor(
                                         None, self._transcribe_audio, segment
                                     )
+                                    self._dbg(f"Whisper returned: {repr(text[:80]) if text else '(empty)'}")
                                     if text and text.strip() and self.on_committed:
                                         self.on_committed(text.strip())
                                 continue  # buffer trimmed — restart inner while
@@ -232,10 +264,12 @@ class LocalRealtimeTranscriber:
                 if speech_start_byte is not None:
                     if (bytes_processed - speech_start_byte) >= _MAX_SPEECH_BYTES:
                         segment = bytes(rolling_buffer[speech_start_byte : bytes_processed])
+                        self._dbg(f"VAD: 30s ceiling — force-flushing to whisper")
                         speech_start_byte = bytes_processed
                         silence_frames    = 0
                         loop = asyncio.get_event_loop()
                         text = await loop.run_in_executor(None, self._transcribe_audio, segment)
+                        self._dbg(f"Whisper returned: {repr(text[:80]) if text else '(empty)'}")
                         if text and text.strip() and self.on_committed:
                             self.on_committed(text.strip())
 
@@ -243,6 +277,7 @@ class LocalRealtimeTranscriber:
                 if speech_start_byte is None and len(rolling_buffer) > _MAX_IDLE_BYTES:
                     keep = 16000 * _BYTES_PER_SAMPLE * 5  # retain 5s tail
                     trim = len(rolling_buffer) - keep
+                    self._dbg(f"VAD: idle trim — discarding {trim / (self.SAMPLE_RATE * _BYTES_PER_SAMPLE):.1f}s of silence")
                     del rolling_buffer[:trim]
                     bytes_processed = max(0, bytes_processed - trim)
 
@@ -259,7 +294,10 @@ class LocalRealtimeTranscriber:
         if speech_start_byte is not None and bytes_processed > speech_start_byte:
             try:
                 segment = bytes(rolling_buffer[speech_start_byte : bytes_processed])
+                duration_s = len(segment) / (self.SAMPLE_RATE * _BYTES_PER_SAMPLE)
+                self._dbg(f"VAD shutdown flush: {duration_s:.2f}s remaining → whisper")
                 text = self._transcribe_audio(segment)
+                self._dbg(f"Whisper returned: {repr(text[:80]) if text else '(empty)'}")
                 if text and text.strip() and self.on_committed:
                     self.on_committed(text.strip())
             except Exception:
@@ -267,6 +305,8 @@ class LocalRealtimeTranscriber:
 
     def _transcribe_audio(self, audio_bytes: bytes) -> str:
         model = self._get_model()
+        device = getattr(model, 'device', '?')
+        self._dbg(f"_transcribe_audio: {len(audio_bytes) / (self.SAMPLE_RATE * 2):.2f}s, device={device}")
         samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         try:
             segments, _ = model.transcribe(
