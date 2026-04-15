@@ -115,9 +115,15 @@ class LocalRealtimeTranscriber:
         """Stop the transcription loop and explicitly free the whisper model."""
         self._running = False
         if self._transcribe_task:
-            self._transcribe_task.cancel()
             try:
-                await self._transcribe_task
+                # Give the loop up to 15s to exit naturally and run its shutdown flush
+                await asyncio.wait_for(self._transcribe_task, timeout=15.0)
+            except asyncio.TimeoutError:
+                self._transcribe_task.cancel()
+                try:
+                    await self._transcribe_task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
             self._transcribe_task = None
@@ -305,7 +311,7 @@ class LocalRealtimeTranscriber:
 
     def _transcribe_audio(self, audio_bytes: bytes) -> str:
         model = self._get_model()
-        device = getattr(model, 'device', '?')
+        device = getattr(getattr(model, 'model', None), 'device', '?')
         self._dbg(f"_transcribe_audio: {len(audio_bytes) / (self.SAMPLE_RATE * 2):.2f}s, device={device}")
         samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         try:
