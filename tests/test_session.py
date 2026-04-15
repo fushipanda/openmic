@@ -49,10 +49,10 @@ class TestCreateSession:
     def test_unnamed_session_uses_friendly_slug(self, tmp_sessions_dir):
         path = create_session()
         assert path.exists()
-        # Filename should be a friendly coolname slug (multi-word, lowercase alpha, hyphen-separated)
+        # Filename should be a two-word coolname slug (e.g. "cerulean-chameleon")
         stem = path.stem
         parts = stem.split("-")
-        assert len(parts) >= 2, f"Expected multi-word slug, got: {stem}"
+        assert len(parts) == 2, f"Expected two-word slug, got: {stem}"
         assert all(p.isalpha() for p in parts), f"Slug parts should be alphabetic, got: {stem}"
 
     def test_meta_entry_written(self, tmp_sessions_dir):
@@ -291,11 +291,11 @@ class TestCreateSessionSlug:
         meta = json.loads(path.read_text().splitlines()[0])
         assert meta["slug"] == path.stem
 
-    def test_slug_is_friendly_multi_word_for_unnamed(self, tmp_sessions_dir):
+    def test_slug_is_friendly_two_word_for_unnamed(self, tmp_sessions_dir):
         path = create_session()
         meta = json.loads(path.read_text().splitlines()[0])
         parts = meta["slug"].split("-")
-        assert len(parts) >= 2, f"Expected multi-word slug, got: {meta['slug']}"
+        assert len(parts) == 2, f"Expected two-word slug, got: {meta['slug']}"
         assert all(p.isalpha() for p in parts), f"Slug parts should be alphabetic, got: {meta['slug']}"
 
     def test_slug_unchanged_on_collision(self, tmp_sessions_dir):

@@ -13,7 +13,7 @@ SESSIONS_DIR = _PROJECT_ROOT / "sessions"
 def _random_slug() -> str:
     """Generate a friendly three-word slug for unnamed sessions (e.g. 'calm-silver-ridge')."""
     from coolname import generate_slug
-    return generate_slug(3)
+    return generate_slug(2)
 
 
 def _now() -> str:
