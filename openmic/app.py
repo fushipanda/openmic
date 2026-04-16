@@ -1192,12 +1192,17 @@ def _notes_to_html(markdown_content: str) -> str:
 
 
 def _copy_to_clipboard(text: str) -> bool:
-    """Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
+    """Copy text to clipboard. Supports macOS (pbcopy), Wayland (wl-copy), and X11 (xclip).
 
     Returns True on success, False if no clipboard tool is available.
     """
     import subprocess
-    for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+    import sys
+    if sys.platform == "darwin":
+        candidates = [["pbcopy"]]
+    else:
+        candidates = [["wl-copy"], ["xclip", "-selection", "clipboard"]]
+    for cmd in candidates:
         try:
             subprocess.run(cmd, input=text.encode(), check=True)
             return True
@@ -1561,7 +1566,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             elif _copy_to_clipboard(content):
                 console.print("[dim]Notes copied to clipboard.[/]")
             else:
-                console.print("[red]No clipboard tool found (wl-copy or xclip required).[/]")
+                console.print("[red]No clipboard tool found (pbcopy on macOS, wl-copy or xclip on Linux).[/]")
         return True
 
     if cmd == "/notes export html":
@@ -1577,7 +1582,9 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
                 export_path.write_text(_notes_to_html(content), encoding="utf-8")
                 console.print(f"[dim]Notes exported to: {export_path}[/]")
                 import subprocess
-                subprocess.Popen(["xdg-open", str(export_path)])
+                import sys
+                open_cmd = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.Popen([open_cmd, str(export_path)])
         return True
 
     if cmd == "/notes export":
@@ -1802,7 +1809,7 @@ OPENMIC_STYLE = {
     # Separator lines and prompt character
     "separator":    f"{TEAL_DIM}",
     "prompt":       f"{TEAL} bold",
-    "session-label": f"bg:{TEAL} #000000 bold",
+    "session-label": f"bg:{TEAL} #000000",
 
     # Ghost-text auto-suggestion (appears inline after cursor)
     "auto-suggestion": GHOST_TEXT,
@@ -2115,7 +2122,7 @@ async def repl_loop(ctx: ReplContext) -> None:
             dashes = max(0, cols - len(badge))
             console.print(
                 f"[{TEAL_DIM}]{'─' * dashes}[/]"
-                f"[bold black on {TEAL}]{badge}[/]",
+                f"[black on {TEAL}]{badge}[/]",
                 end="\n",
             )
         else:

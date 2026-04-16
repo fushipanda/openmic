@@ -1,6 +1,6 @@
 [project]
 name = "openmic"
-version = "0.3.1"
+version = "0.3.2"
 description = "Privacy-first CLI for capturing and structuring spoken thought — locally, with GPU-accelerated transcription"
 requires-python = ">=3.12"
 dependencies = [

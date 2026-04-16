@@ -307,7 +307,7 @@ OpenMic has **278 passing tests** covering:
 
 ## Platform Support
 
-Developed and tested on Linux (Arch). macOS should work in principle but is untested. Windows is not currently supported.
+Developed and tested on Linux (Arch). macOS is supported — clipboard and file-open use native macOS commands. Windows is not currently supported (WSL is a workable workaround for the install script, but the app itself will crash on Windows due to POSIX terminal dependencies).
 
 ---
 
