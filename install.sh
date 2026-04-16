@@ -44,24 +44,25 @@ check_python() {
 # --- Install ---
 install_openmic() {
     local pkg="git+https://github.com/${REPO}.git"
+    local pkg_with_extras="${pkg}#egg=openmic[local]"
 
     # Try pipx first (isolated install)
     if command -v pipx &>/dev/null; then
         echo "Installing with pipx..."
-        pipx install "$pkg"
+        pipx install "$pkg_with_extras"
         return
     fi
 
     # Try uv next
     if command -v uv &>/dev/null; then
         echo "Installing with uv..."
-        uv tool install "$pkg"
+        uv tool install "${pkg}[local]"
         return
     fi
 
     # Fall back to pip
     echo "Installing with pip..."
-    "$PYTHON" -m pip install --user "$pkg"
+    "$PYTHON" -m pip install --user "$pkg_with_extras"
     echo ""
     echo "Note: Make sure ~/.local/bin is in your PATH."
 }

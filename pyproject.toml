@@ -1,17 +1,14 @@
 [project]
 name = "openmic"
-version = "0.3.0"
+version = "0.3.1"
 description = "Privacy-first CLI for capturing and structuring spoken thought — locally, with GPU-accelerated transcription"
 requires-python = ">=3.12"
 dependencies = [
     "sounddevice>=0.4.6",
-    "scipy>=1.11.0",
-    "elevenlabs>=1.0.0",
     "langchain>=0.1.0",
     "langchain-community>=0.0.10",
     "faiss-cpu>=1.7.4",
     "python-dotenv>=1.0.0",
-    "websockets>=12.0",
     "pyyaml>=6.0.0",
     "prompt_toolkit>=3.0.0",
     "markdown>=3.5.0",
@@ -23,7 +20,7 @@ anthropic = ["langchain-anthropic>=0.1.0"]
 openai = ["langchain-openai>=0.0.5"]
 gemini = ["langchain-google-genai>=2.0.0"]
 ollama = ["langchain-ollama>=0.3.0"]
-local = ["pywhispercpp>=1.0.0", "webrtcvad-wheels>=2.0.10"]
+local = ["faster-whisper>=1.0.0", "webrtcvad-wheels>=2.0.10"]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
 
 [project.scripts]

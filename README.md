@@ -27,33 +27,32 @@ Start a session for anything: a meeting, a brainstorm, a voice journal, a techni
 
 ## Installation
 
-### Quick Install
+**Requires Python 3.12+**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/fushipanda/openmic/main/install.sh | bash
 ```
 
-This checks for Python 3.12+, installs OpenMic via pipx/uv/pip, and you're ready to go. The first time you run `openmic`, a setup wizard walks you through LLM provider selection and API key configuration.
-
-### Manual Install
+The installer checks your Python version and installs `openmic` as a global command. The first time you run it, a setup wizard walks you through choosing an LLM provider and adding your API key.
 
 ```bash
-pip install git+https://github.com/fushipanda/openmic.git
-openmic setup  # interactive setup wizard
+openmic        # launches the app (and setup wizard on first run)
+openmic setup  # re-run the wizard at any time
 ```
 
-### From Source (Development)
+<details>
+<summary>Installing from source (for contributors)</summary>
 
 ```bash
 git clone https://github.com/fushipanda/openmic.git
 cd openmic
-python -m venv venv
-source venv/bin/activate
-pip install -e ".[dev,anthropic,openai,local]"
+uv tool install --editable ".[local]"
 openmic setup
 ```
 
-The `local` extra installs `faster-whisper` (GPU-accelerated transcription via CTranslate2) and `webrtcvad-wheels` (voice activity detection).
+Requires [uv](https://docs.astral.sh/uv/) (`pip install uv`). The `--editable` flag means the installed command runs directly from your cloned source — no reinstall needed after making changes.
+
+</details>
 
 ---
 
