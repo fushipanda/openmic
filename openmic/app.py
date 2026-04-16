@@ -202,6 +202,13 @@ HELP_COMMANDS = [
     ("/exit",            "Quit OpenMic"),
 ]
 
+# Hidden aliases — appear in completions only when their prefix is typed,
+# never shown in the default "/" listing or /help table.
+_COMMAND_ALIASES: dict[str, tuple[str, str]] = {
+    "/history": ("/resume", "alias for /resume"),
+    "/session": ("/resume", "alias for /resume"),
+}
+
 
 class UsageTracker:
     """Tracks audio and LLM usage for the current session."""
@@ -1837,9 +1844,13 @@ class _CommandAutoSuggest:
             return None
 
         if text.startswith("/"):
+            tl = text.lower()
             for cmd, _ in HELP_COMMANDS:
-                if cmd and cmd.lower().startswith(text.lower()) and len(cmd) > len(text):
+                if cmd and cmd.lower().startswith(tl) and len(cmd) > len(text):
                     return Suggestion(cmd[len(text):])
+            for alias in _COMMAND_ALIASES:
+                if alias.startswith(tl) and len(alias) > len(text):
+                    return Suggestion(alias[len(text):])
 
         return None
 
@@ -1852,15 +1863,15 @@ class _CommandCompleter:
         text = document.text_before_cursor
 
         if text.startswith("/"):
+            tl = text.lower()
             for cmd, desc in HELP_COMMANDS:
-                if cmd and cmd.lower().startswith(text.lower()):
+                if cmd and cmd.lower().startswith(tl):
                     # start_position=-len(text) anchors the popup to the
                     # left edge of the input text, not the cursor position.
-                    yield Completion(
-                        cmd,
-                        start_position=-len(text),
-                        display_meta=desc,
-                    )
+                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
+            for alias, (_, desc) in _COMMAND_ALIASES.items():
+                if alias.startswith(tl) and tl != "/":
+                    yield Completion(alias, start_position=-len(text), display_meta=desc)
             return
 
         at_idx = text.rfind("@")
@@ -1964,10 +1975,13 @@ async def repl_loop(ctx: ReplContext) -> None:
                 (cmd, desc) for cmd, desc in _get_template_commands()
                 if cmd.lower().startswith(tl)
             ]
-        return [
-            (cmd, desc) for cmd, desc in HELP_COMMANDS
-            if cmd and cmd.lower().startswith(tl)
-        ]
+        matches = [(cmd, desc) for cmd, desc in HELP_COMMANDS if cmd and cmd.lower().startswith(tl)]
+        if tl != "/":
+            matches += [
+                (alias, desc) for alias, (_, desc) in _COMMAND_ALIASES.items()
+                if alias.startswith(tl)
+            ]
+        return matches
 
     def _completions_text():
         matches = _slash_matches()
