@@ -1,7 +1,8 @@
 # OpenMic
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Built with Claude Code](https://img.shields.io/badge/built_with-Claude_Code-blueviolet.svg)](https://github.com/anthropics/claude-code)
+[![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](#platform-support)
 [![Tests](https://github.com/fushipanda/openmic/actions/workflows/tests.yml/badge.svg)](https://github.com/fushipanda/openmic/actions/workflows/tests.yml)
 
 > A privacy-first CLI for capturing and structuring spoken thought. Start a session, speak freely — OpenMic turns what you say into searchable, AI-ready data, entirely on your machine.
