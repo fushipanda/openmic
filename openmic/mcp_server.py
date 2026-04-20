@@ -1,5 +1,6 @@
 """MCP server exposing OpenMic session data via FastMCP (stdio transport)."""
 import logging
+import os
 from pathlib import Path
 
 import anyio
