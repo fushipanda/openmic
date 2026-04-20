@@ -55,6 +55,36 @@ Requires [uv](https://docs.astral.sh/uv/) (`pip install uv`). The `--editable` f
 
 </details>
 
+### Claude Desktop / MCP Clients
+
+> **Prerequisite:** Run `/query` inside `openmic` at least once to build the local FAISS index before using the MCP server.
+
+Install the `mcp` extra alongside your provider extra:
+
+```bash
+uv tool install ".[local,anthropic,mcp]"
+```
+
+**Claude Desktop** — add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "openmic": {
+      "command": "openmic-mcp"
+    }
+  }
+}
+```
+
+Config file locations:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+**Claude Code**: `claude mcp add openmic -- openmic-mcp`
+
+The server exposes five tools: `list_sessions`, `get_session_transcript`, `get_session_notes`, `query_transcripts` (RAG across all sessions), and `list_note_templates`.
+
 ---
 
 ## Configuration
