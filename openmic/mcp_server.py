@@ -14,6 +14,30 @@ load_dotenv(_CONFIG_DIR / ".env", override=False)
 logger = logging.getLogger(__name__)
 
 
+def _apply_settings() -> None:
+    """Apply llm_provider/llm_model/whisper_model from settings.json to env.
+
+    Mirrors app.py:_bootstrap() so the MCP server respects the user's
+    configured provider rather than falling back to the project .env defaults.
+    """
+    import json
+    settings_path = _CONFIG_DIR / "settings.json"
+    try:
+        config = json.loads(settings_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+    for key, env_var in (
+        ("llm_provider", "LLM_PROVIDER"),
+        ("llm_model", "LLM_MODEL"),
+        ("whisper_model", "WHISPER_MODEL"),
+    ):
+        if config.get(key):
+            os.environ[env_var] = config[key]
+
+
+_apply_settings()
+
+
 @lifespan
 async def startup(server: FastMCP):
     from openmic.rag import TranscriptRAG
