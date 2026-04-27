@@ -59,9 +59,7 @@ def _save_config(config: dict) -> None:
 def _update_env_file(key: str, value: str) -> None:
     """Write or update a key=value pair in the .env file."""
     value = value.replace("\n", "").replace("\r", "")
-    env_path = Path(".env")
-    if not env_path.exists():
-        env_path = CONFIG_DIR / ".env"
+    env_path = CONFIG_DIR / ".env"
     if env_path.exists():
         lines = env_path.read_text().splitlines(keepends=True)
         updated = False
@@ -1058,7 +1056,7 @@ async def _generate_notes_for_session(
 
         label = f"Generating notes ({template_id})"
         result = await _with_spinner(label, lambda: generate_meeting_notes(tmp_path, template_id, force_regen=force_regen))
-        notes_content, _, _ = result
+        notes_content, _, _, tokens_used = result
         if ctx:
             ctx.usage.add_llm_call()
 
@@ -1068,7 +1066,8 @@ async def _generate_notes_for_session(
         console.print()
         render_markdown(_strip_md_frontmatter(notes_content))
         console.print()
-        console.print(f"[dim]Notes saved to session: {session_path.name}[/]")
+        token_info = f"  [dim]{tokens_used:,} tokens[/]" if tokens_used is not None else ""
+        console.print(f"[dim]Notes saved to session: {session_path.name}[/]{token_info}")
     except Exception as e:
         console.print(f"[red]Error generating notes: {e}[/]")
     finally:
@@ -1585,7 +1584,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             else:
                 meta = get_session_meta(session_path)
                 slug = meta.get("slug") or meta.get("name") or session_path.stem
-                export_path = Path.home() / f"{slug}_notes.html"
+                export_path = NOTES_DIR / f"{slug}_notes.html"
                 export_path.write_text(_notes_to_html(content), encoding="utf-8")
                 console.print(f"[dim]Notes exported to: {export_path}[/]")
                 import subprocess
@@ -1603,7 +1602,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             else:
                 meta = get_session_meta(session_path)
                 slug = meta.get("slug") or meta.get("name") or session_path.stem
-                export_path = Path.home() / f"{slug}_notes.md"
+                export_path = NOTES_DIR / f"{slug}_notes.md"
                 export_path.write_text(content, encoding="utf-8")
                 console.print(f"[dim]Notes exported to: {export_path}[/]")
         return True
@@ -2007,6 +2006,16 @@ async def repl_loop(ctx: ReplContext) -> None:
 
     def _sep_text():
         cols = shutil.get_terminal_size((80, 24)).columns
+        if ctx.active_session_name:
+            clean = ctx.active_session_name.replace("_", " ").strip()
+            if len(clean) > 28:
+                clean = clean[:27] + "…"
+            badge = f" {clean} "
+            dashes = max(0, cols - len(badge))
+            return [
+                ("class:separator", "─" * dashes),
+                (f"fg:black bg:{TEAL}", badge),
+            ]
         return [("class:separator", "─" * cols)]
 
     # ── Key bindings ──────────────────────────────────────────────────────────
@@ -2076,13 +2085,18 @@ async def repl_loop(ctx: ReplContext) -> None:
     def _ctrl_d(event):
         event.app.exit(exception=EOFError)
 
-    # ── Layout: input → completions ──────────────────────────────────────────
-    # Separator is printed by the REPL loop (outside pt) so erase_when_done
-    # only clears input + completions, leaving the separator visible during
-    # command execution.
+    # ── Layout: separator → input → completions ─────────────────────────────
+    # Separator lives inside the pt Application so erase_when_done clears it
+    # along with input + completions — this prevents old separators from
+    # accumulating as scrollback above each command's output.
 
     layout = Layout(
         HSplit([
+            Window(
+                content=FormattedTextControl(_sep_text, focusable=False),
+                height=1,
+                wrap_lines=False,
+            ),
             Window(
                 content=BufferControl(
                     buffer=buf,
@@ -2125,22 +2139,6 @@ async def repl_loop(ctx: ReplContext) -> None:
         _comp_idx[0]    = 0
         _view_offset[0] = 0
         buf.reset()
-        # Print separator here (outside pt) so erase_when_done only clears
-        # input + completions — separator stays visible during command execution.
-        cols = shutil.get_terminal_size((80, 24)).columns
-        if ctx.active_session_name:
-            clean = ctx.active_session_name.replace("_", " ").strip()
-            if len(clean) > 28:
-                clean = clean[:27] + "…"
-            badge = f" {clean} "
-            dashes = max(0, cols - len(badge))
-            console.print(
-                f"[{TEAL_DIM}]{'─' * dashes}[/]"
-                f"[black on {TEAL}]{badge}[/]",
-                end="\n",
-            )
-        else:
-            console.print(f"[{TEAL_DIM}]{'─' * cols}[/]")
         try:
             cmd = await app.run_async()
             _ctrl_c_warned = False
