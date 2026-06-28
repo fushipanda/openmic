@@ -339,3 +339,28 @@ class TestNotesPrompt:
     def test_prompt_input_variable(self):
         """The prompt template uses 'transcript' as its input variable."""
         assert NOTES_PROMPT.input_variables == ["transcript"]
+
+
+class TestExportPath:
+    """Export files land in NOTES_DIR, not the user's home directory."""
+
+    def test_export_md_uses_notes_dir(self, storage_dirs, monkeypatch):
+        """Notes export (.md) writes into NOTES_DIR, not Path.home()."""
+        _, notes_dir = storage_dirs
+        monkeypatch.setattr("openmic.app.NOTES_DIR", notes_dir)
+
+        slug = "test-session"
+        export_path = notes_dir / f"{slug}_notes.md"
+        assert export_path.parent == notes_dir
+        assert export_path.parent != Path.home()
+
+    def test_export_html_uses_notes_dir(self, storage_dirs, monkeypatch):
+        """Notes export (.html) writes into NOTES_DIR, not Path.home()."""
+        _, notes_dir = storage_dirs
+        monkeypatch.setattr("openmic.app.NOTES_DIR", notes_dir)
+
+        slug = "test-session"
+        export_path = notes_dir / f"{slug}_notes.html"
+        assert export_path.parent == notes_dir
+        assert export_path.parent != Path.home()
+
