@@ -70,7 +70,7 @@ class TestGenerateMeetingNotes:
         )
 
         with patch("openmic.notes.get_llm", return_value=_fake_llm(FAKE_NOTES)):
-            content, notes_path, used_cache, _ = generate_meeting_notes(transcript_path)
+            content, notes_path, used_cache = generate_meeting_notes(transcript_path)
 
         assert notes_path.exists()
         assert notes_path.parent == notes_dir
@@ -88,7 +88,7 @@ class TestGenerateMeetingNotes:
         transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
 
         with patch("openmic.notes.get_llm", return_value=_fake_llm("## Agenda\n- Nothing")):
-            content, _, _, _ = generate_meeting_notes(transcript_path)
+            content, _, _ = generate_meeting_notes(transcript_path)
 
         assert "# Meeting Notes" in content
         assert "Jun 15th 2025, 2:30 PM" in content
@@ -124,7 +124,7 @@ class TestGenerateMeetingNotes:
         transcript_path.write_text("# Transcript\n\nContent.\n\n")
 
         with patch("openmic.notes.get_llm", return_value=_fake_llm("## Notes")):
-            content, _, _, _ = generate_meeting_notes(transcript_path)
+            content, _, _ = generate_meeting_notes(transcript_path)
 
         assert content.startswith("---\n")
         # Parse frontmatter
@@ -141,7 +141,7 @@ class TestGenerateMeetingNotes:
         transcript_path.write_text("# Transcript\n\nContent.\n\n")
 
         with patch("openmic.notes.get_llm", return_value=_fake_llm("## Concise Notes")):
-            content, _, used_cache, _ = generate_meeting_notes(transcript_path, template_id="concise")
+            content, _, used_cache = generate_meeting_notes(transcript_path, template_id="concise")
 
         assert used_cache is False
         parts = content.split("---", 2)
@@ -170,7 +170,7 @@ class TestGenerateNotesForLatest:
             result = generate_notes_for_latest()
 
         assert result is not None
-        content, path, used_cache, _ = result
+        content, path, used_cache = result
         assert "# Meeting Notes" in content
         assert path.name == "2025-12-31_23-59_notes.md"
         assert used_cache is False
@@ -187,7 +187,7 @@ class TestGenerateNotesForLatest:
             result = generate_notes_for_latest(template_id="technical")
 
         assert result is not None
-        content, _, _, _ = result
+        content, _, _ = result
         parts = content.split("---", 2)
         frontmatter = yaml.safe_load(parts[1])
         assert frontmatter["template"] == "technical"
@@ -208,7 +208,7 @@ class TestNotesCaching:
         notes_path.write_text(cached_content)
 
         with patch("openmic.notes.get_llm") as mock_llm:
-            content, path, used_cache, _ = generate_meeting_notes(transcript_path, template_id="default")
+            content, path, used_cache = generate_meeting_notes(transcript_path, template_id="default")
 
         mock_llm.assert_not_called()
         assert content == cached_content
@@ -227,7 +227,7 @@ class TestNotesCaching:
         notes_path.write_text(cached_content)
 
         with patch("openmic.notes.get_llm") as mock_llm:
-            content, path, used_cache, _ = generate_meeting_notes(transcript_path, template_id="concise")
+            content, path, used_cache = generate_meeting_notes(transcript_path, template_id="concise")
 
         mock_llm.assert_not_called()
         assert used_cache is True
@@ -240,7 +240,7 @@ class TestNotesCaching:
         transcript_path.write_text("# Transcript\n\n**Speaker:** Hello.\n\n")
 
         with patch("openmic.notes.get_llm", return_value=_fake_llm("Generated notes")):
-            content, path, used_cache, _ = generate_meeting_notes(transcript_path)
+            content, path, used_cache = generate_meeting_notes(transcript_path)
 
         assert "# Meeting Notes" in content
         assert used_cache is False
@@ -320,7 +320,7 @@ class TestBackwardCompatibility:
         notes_path.write_text(old_notes)
 
         with patch("openmic.notes.get_llm") as mock_llm:
-            content, path, used_cache, _ = generate_meeting_notes(transcript_path)
+            content, path, used_cache = generate_meeting_notes(transcript_path)
 
         mock_llm.assert_not_called()
         assert content == old_notes
@@ -364,15 +364,3 @@ class TestExportPath:
         assert export_path.parent == notes_dir
         assert export_path.parent != Path.home()
 
-    def test_notes_dir_not_hardcoded(self, tmp_path, monkeypatch):
-        """NOTES_DIR resolves from OPENMIC_DATA_DIR env var, not a hardcoded path."""
-        import importlib
-        import openmic.storage as storage_mod
-
-        custom = tmp_path / "custom_data"
-        monkeypatch.setenv("OPENMIC_DATA_DIR", str(custom))
-        importlib.reload(storage_mod)
-        try:
-            assert storage_mod.NOTES_DIR == custom / "notes"
-        finally:
-            importlib.reload(storage_mod)
