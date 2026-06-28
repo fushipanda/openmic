@@ -1,5 +1,6 @@
 """Storage utilities for transcripts and notes."""
 
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -10,10 +11,25 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_\-]', '', name.strip().replace(" ", "_"))
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TRANSCRIPTS_DIR = _PROJECT_ROOT / "transcripts"
-NOTES_DIR = _PROJECT_ROOT / "notes"
-RECORDINGS_DIR = _PROJECT_ROOT / "recordings"
+def _data_dir() -> Path:
+    """Return the user-level data directory for openmic.
+
+    Honors OPENMIC_DATA_DIR, then XDG_DATA_HOME, falling back to
+    ~/.local/share/openmic. This keeps session data stable across global
+    installs where the package lives inside a tool venv.
+    """
+    override = os.environ.get("OPENMIC_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
+    return base / "openmic"
+
+
+DATA_DIR = _data_dir()
+TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
+NOTES_DIR = DATA_DIR / "notes"
+RECORDINGS_DIR = DATA_DIR / "recordings"
 
 
 def format_transcript_title(timestamp: str, session_name: str | None = None) -> str:
@@ -46,9 +62,9 @@ def format_transcript_title(timestamp: str, session_name: str | None = None) -> 
 
 def ensure_dirs() -> None:
     """Create storage directories if they don't exist."""
-    TRANSCRIPTS_DIR.mkdir(exist_ok=True)
-    NOTES_DIR.mkdir(exist_ok=True)
-    RECORDINGS_DIR.mkdir(exist_ok=True)
+    TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_transcript(segments: list[dict], session_name: str | None = None) -> Path:

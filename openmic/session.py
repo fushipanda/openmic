@@ -5,9 +5,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from openmic.storage import _PROJECT_ROOT, _sanitize_name
+from openmic.storage import DATA_DIR, _sanitize_name
 
-SESSIONS_DIR = _PROJECT_ROOT / "sessions"
+SESSIONS_DIR = DATA_DIR / "sessions"
 
 
 def _random_slug() -> str:
