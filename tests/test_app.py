@@ -81,9 +81,18 @@ class TestConfigHelpers:
     def test_update_env_file_updates_existing_key(self, tmp_path):
         env_path = tmp_path / ".env"
         env_path.write_text("FOO=old\nBAR=keep\n")
+        with patch("openmic.app.Path", side_effect=lambda p: tmp_path / p if p == ".env" else Path(p)):
+            pass
+        # Direct test: patch the Path(".env") resolution
         import openmic.app as app_mod
 
-        with patch.object(app_mod, "CONFIG_DIR", tmp_path):
+        original = Path
+        def patched_path(arg):
+            if str(arg) == ".env":
+                return env_path
+            return original(arg)
+
+        with patch("openmic.app.Path", side_effect=patched_path):
             app_mod._update_env_file("FOO", "new_value")
         content = env_path.read_text()
         assert "FOO=new_value" in content
@@ -93,8 +102,14 @@ class TestConfigHelpers:
         env_path = tmp_path / ".env"
         env_path.write_text("FOO=existing\n")
         import openmic.app as app_mod
+        original = Path
 
-        with patch.object(app_mod, "CONFIG_DIR", tmp_path):
+        def patched_path(arg):
+            if str(arg) == ".env":
+                return env_path
+            return original(arg)
+
+        with patch("openmic.app.Path", side_effect=patched_path):
             app_mod._update_env_file("NEWKEY", "newval")
         content = env_path.read_text()
         assert "NEWKEY=newval" in content
