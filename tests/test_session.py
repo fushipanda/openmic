@@ -461,3 +461,35 @@ class TestSessionDurationS:
         with path.open("a") as f:
             f.write(json.dumps({"type": "transcript", "segments": [], "id": "x", "timestamp": "t"}) + "\n")
         assert session_duration_s(path) == 0.0
+
+
+class TestSessionsDirLocation:
+    """SESSIONS_DIR must track the user data dir, not the package location."""
+
+    def test_sessions_dir_under_data_dir(self, monkeypatch):
+        """SESSIONS_DIR is derived from storage.DATA_DIR."""
+        import openmic.session as session_mod
+        from openmic.storage import DATA_DIR
+
+        monkeypatch.undo()  # drop the autouse tmp_sessions_dir patch
+        assert session_mod.SESSIONS_DIR == DATA_DIR / "sessions"
+
+    def test_sessions_dir_not_next_to_package(self, monkeypatch):
+        """SESSIONS_DIR must not sit inside site-packages."""
+        import openmic.session as session_mod
+
+        monkeypatch.undo()  # drop the autouse tmp_sessions_dir patch
+        package_parent = Path(session_mod.__file__).resolve().parent.parent
+        assert package_parent not in session_mod.SESSIONS_DIR.parents
+
+    def test_create_session_builds_missing_parents(self, monkeypatch, tmp_path):
+        """First session on a fresh install must not fail on a missing tree."""
+        import openmic.session as session_mod
+
+        nested = tmp_path / "no" / "such" / "tree" / "sessions"
+        monkeypatch.setattr(session_mod, "SESSIONS_DIR", nested)
+
+        assert not nested.exists()
+        path = create_session("demo")
+        assert path.exists()
+        assert path.parent == nested
