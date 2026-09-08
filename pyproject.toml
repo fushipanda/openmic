@@ -24,7 +24,7 @@ openrouter = ["langchain-openai>=0.0.5"]
 ollama = ["langchain-ollama>=0.3.0"]
 local = ["faster-whisper>=1.0.0", "webrtcvad-wheels>=2.0.10"]
 mcp = ["fastmcp>=3.0"]
-dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.6"]
 
 [project.scripts]
 openmic = "openmic.app:main"
@@ -36,3 +36,21 @@ build-backend = "hatchling.build"
 
 [tool.hatchling.build.targets.wheel.force-include]
 "openmic/templates" = "openmic/templates"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Deliberately narrow, chosen to pass on the current tree rather than forcing a
+# codebase-wide rewrite now. Widen incrementally.
+#   E4/E7/E9 + F  — ruff's default: import, statement and runtime errors
+#   E402 ignored  — app.py must call warnings.filterwarnings() before importing
+#                   langchain, so module-level imports cannot all come first
+#   F401/F841     — ~35 pre-existing unused imports and locals, mostly in tests
+#   E501          — 16 long lines; line-length above is advisory for now
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402", "F401", "F841", "E501"]

@@ -3,6 +3,7 @@
 import warnings
 warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
 
+import argparse
 import asyncio
 import json
 import os
@@ -143,7 +144,6 @@ from openmic.audio import AudioRecorder
 from openmic.storage import (
     save_transcript,
     list_transcripts,
-    get_latest_transcript,
     rename_transcript,
     format_transcript_title,
     is_placeholder_name,
@@ -889,7 +889,7 @@ def _parse_md_table(lines: list[str]) -> dict | None:
     Returns None if lines don't form a valid table (must have header + separator rows).
     alignments: list of 'left' | 'center' | 'right' per column.
     """
-    stripped = [l.strip() for l in lines if l.strip()]
+    stripped = [line.strip() for line in lines if line.strip()]
     if len(stripped) < 2:
         return None
 
@@ -2237,15 +2237,13 @@ Set WHISPER_MODEL in .env to change the model (default: large-v3-turbo).
 """
 
 
-def _build_parser() -> "argparse.ArgumentParser":
+def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser.
 
     Two behaviours cannot be expressed here and are handled by a pre-check in
     main(): the config-free fast path (--version/--help/update/setup) and the
     bare one-shot query ('openmic what did we decide').
     """
-    import argparse
-
     parser = argparse.ArgumentParser(
         prog="openmic",
         description="Privacy-first CLI for capturing and structuring spoken thought.",
@@ -2414,21 +2412,23 @@ def _run_oneshot_query(query_text: str) -> None:
 
 
 def _run_oneshot_notes() -> None:
-    """Generate (or show cached) notes for the latest transcript and exit."""
+    """Generate (or show cached) notes for the most recent session and exit."""
     config = _bootstrap()
     if config is None:
         return
 
-    transcript_path = get_latest_transcript()
-    if transcript_path is None:
-        console.print("[dim]No transcripts available.[/]")
+    sessions = list_sessions()
+    if not sessions:
+        console.print("[dim]No sessions available.[/]")
         return
 
+    session_path = sessions[0]  # list_sessions() is newest-first
     rag = TranscriptRAG()
     ctx = ReplContext(rag=rag)
+    ctx.active_session_path = session_path
 
     async def _run():
-        await _generate_notes_for_path(transcript_path, ctx=ctx)
+        await _generate_notes_for_session(session_path, ctx=ctx)
 
     try:
         asyncio.run(_run())

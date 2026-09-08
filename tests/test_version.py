@@ -138,7 +138,6 @@ def test_get_upgrade_command_all_methods():
 
 def test_main_version_flag(capsys):
     """openmic --version prints the version, then exits 0 as argparse does."""
-    import pytest
     with patch("sys.argv", ["openmic", "--version"]):
         from openmic.app import main
 
