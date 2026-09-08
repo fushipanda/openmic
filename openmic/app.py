@@ -502,6 +502,65 @@ def _relative_date(ts: float) -> str:
         return ""
 
 
+_SPEAKER_COLORS = [
+    "#00d4aa",  # teal
+    "#ff6b6b",  # coral
+    "#4dabf7",  # blue
+    "#ffd43b",  # yellow
+    "#a9e34b",  # lime
+    "#da77f2",  # purple
+    "#ff922b",  # orange
+    "#66d9e8",  # cyan
+]
+
+
+def _render_transcripts(segments: list[dict]) -> None:
+    """Print transcript segments with a stable colour per speaker.
+
+    Used both to replay a recording just finished and to show a session's
+    stored history when it is opened.
+    """
+    speaker_color_map: dict[str, str] = {}
+    prev_speaker: str | None = None
+
+    console.print()
+    for seg in segments:
+        speaker = seg.get("speaker", "Speaker")
+        text = seg.get("text", "")
+        if speaker not in speaker_color_map:
+            speaker_color_map[speaker] = _SPEAKER_COLORS[len(speaker_color_map) % len(_SPEAKER_COLORS)]
+        color = speaker_color_map[speaker]
+        if prev_speaker and prev_speaker != speaker:
+            console.print()
+        console.print(f"[bold {color}][{speaker}][/] {text}")
+        prev_speaker = speaker
+    console.print()
+
+
+def _activate_session(ctx, session_path: Path) -> None:
+    """Make `session_path` the active session and show what it already holds.
+
+    Prints the session's display title, replays every stored recording, and
+    finishes with the duration bar. The newest content therefore lands at the
+    bottom of the screen, with older recordings in scrollback.
+    """
+    ctx.active_session_path = session_path
+    data = read_session(session_path)
+    title = display_title(data)
+    ctx.active_session_name = title
+
+    recordings = data["transcripts"]
+    n = len(recordings)
+    console.print(f"[dim]Active session: {title} ({n} recording{'s' if n != 1 else ''})[/]")
+
+    for rec in recordings:
+        stamp = rec.get("timestamp", "")
+        console.print(f"[dim]── {stamp} ──[/]")
+        _render_transcripts(rec.get("segments", []))
+
+    _print_duration_bar(session_path)
+
+
 def _print_duration_bar(session_path: Path) -> None:
     """Print a duration bar for a session if it has recordings."""
     duration = session_duration_s(session_path)
@@ -1262,6 +1321,16 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
     _start_time: list[float] = [0.0]
     _last_seg_end: list[float] = [0.0]           # tracks end time of previous segment
 
+    # Label shown in the recording header. An explicit name wins; otherwise fall
+    # back to the active session's title so resuming an unnamed session still
+    # shows which session is being recorded into.
+    header_label = session_name
+    if not header_label and ctx and ctx.active_session_path:
+        try:
+            header_label = display_title(read_session(ctx.active_session_path))
+        except Exception:
+            header_label = None
+
     # Offset elapsed display by existing session duration so timer reads cumulatively
     _offset_s = session_duration_s(ctx.active_session_path) if (ctx and ctx.active_session_path and ctx.active_session_path.exists()) else 0.0
 
@@ -1355,7 +1424,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
 
         mins = int(elapsed_s) // 60
         secs = int(elapsed_s) % 60
-        session_part = f" [{session_name}]" if session_name else ""
+        session_part = f" [{header_label}]" if header_label else ""
 
         line = RichText()
         line.append(dot, style=dot_style)
@@ -1427,32 +1496,7 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
         duration_s = returned_wav.stat().st_size / (16000 * 2)  # int16 mono 16kHz
         segments = realtime_segments
 
-        _SPEAKER_COLORS = [
-            "#00d4aa",  # teal
-            "#ff6b6b",  # coral
-            "#4dabf7",  # blue
-            "#ffd43b",  # yellow
-            "#a9e34b",  # lime
-            "#da77f2",  # purple
-            "#ff922b",  # orange
-            "#66d9e8",  # cyan
-        ]
-        speaker_color_map: dict[str, str] = {}
-        prev_speaker: str | None = None
-
-        console.print()
-        for seg in segments:
-            speaker = seg.get("speaker", "Speaker")
-            text = seg.get("text", "")
-            if speaker not in speaker_color_map:
-                speaker_color_map[speaker] = _SPEAKER_COLORS[len(speaker_color_map) % len(_SPEAKER_COLORS)]
-            color = speaker_color_map[speaker]
-            if prev_speaker and prev_speaker != speaker:
-                console.print()
-            console.print(f"[bold {color}][{speaker}][/] {text}")
-            prev_speaker = speaker
-
-        console.print()
+        _render_transcripts(segments)
 
         # Session save: append to active session or create a new one
         active = ctx.active_session_path if ctx else None
@@ -1624,14 +1668,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             return True
         selected = pick_session(sessions, active=ctx.active_session_path)
         if selected:
-            ctx.active_session_path = selected
-            meta = get_session_meta(selected)
-            ctx.active_session_name = meta.get("name") or selected.stem
-            data = read_session(selected)
-            n = len(data["transcripts"])
-            name = meta.get("name", selected.stem)
-            console.print(f"[dim]Active session: {name} ({n} recording{'s' if n != 1 else ''})[/]")
-            _print_duration_bar(selected)
+            _activate_session(ctx, selected)
         return True
 
     if cmd.startswith("/transcript ") or cmd.startswith("/history ") or cmd.startswith("/sessions "):
@@ -1653,14 +1690,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
                     target = p
                     break
         if target:
-            ctx.active_session_path = target
-            meta = get_session_meta(target)
-            ctx.active_session_name = meta.get("name") or target.stem
-            data = read_session(target)
-            n = len(data["transcripts"])
-            name = meta.get("name", target.stem)
-            console.print(f"[dim]Active session: {name} ({n} recording{'s' if n != 1 else ''})[/]")
-            _print_duration_bar(target)
+            _activate_session(ctx, target)
         else:
             console.print(f"[dim]Session not found: {identifier}[/]")
         return True
@@ -1674,8 +1704,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         selected = pick_session(sessions, active=ctx.active_session_path)
         if not selected:
             return True
-        meta = get_session_meta(selected)
-        name = meta.get("name") or selected.stem
+        name = display_title(read_session(selected))
         console.print(f"[bold red]Delete '{name}'? This cannot be undone.[/] [y/N] ", end="")
         try:
             answer = input("").strip().lower()
