@@ -737,3 +737,67 @@ class TestRenderMarkdown:
         # A line with | but not a valid table (no separator row following)
         render_markdown("Option A | Option B\nJust text")
         # Should not crash — rendered as plain text
+
+
+# ---------------------------------------------------------------------------
+# Session activation and transcript rendering
+# ---------------------------------------------------------------------------
+
+def _strip_ansi(s: str) -> str:
+    import re
+    return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+
+class TestActivateSession:
+    """Opening a session must show what it already contains."""
+
+    @pytest.fixture
+    def session_with_two_recordings(self, tmp_path, monkeypatch):
+        sessions = tmp_path / "sessions"
+        sessions.mkdir()
+        monkeypatch.setattr("openmic.session.SESSIONS_DIR", sessions)
+        from openmic.session import create_session, append_transcript
+        path = create_session(None)
+        append_transcript(path, [{"speaker": "Alice", "text": "first recording line",
+                                  "start": 0.0, "end": 1.0}], 12.0)
+        append_transcript(path, [{"speaker": "Bob", "text": "second recording line",
+                                  "start": 0.0, "end": 1.0}], 8.0)
+        return path
+
+    def test_renders_all_prior_recordings(self, session_with_two_recordings, capsys):
+        from openmic.app import _activate_session
+        ctx = _make_ctx()
+        _activate_session(ctx, session_with_two_recordings)
+        out = _strip_ansi(capsys.readouterr().out)
+        assert "first recording line" in out
+        assert "second recording line" in out
+        assert "2 recordings" in out
+
+    def test_sets_active_session_state(self, session_with_two_recordings):
+        from openmic.app import _activate_session
+        ctx = _make_ctx()
+        _activate_session(ctx, session_with_two_recordings)
+        assert ctx.active_session_path == session_with_two_recordings
+        assert ctx.active_session_name
+
+    def test_uses_display_title_not_stale_meta_name(self, session_with_two_recordings, capsys):
+        """A renamed session must show the new title, not meta['name']."""
+        from openmic.app import _activate_session
+        from openmic.session import append_rename
+        append_rename(session_with_two_recordings, "Renamed Session")
+        ctx = _make_ctx()
+        _activate_session(ctx, session_with_two_recordings)
+        assert "Renamed Session" in _strip_ansi(capsys.readouterr().out)
+        assert ctx.active_session_name == "Renamed Session"
+
+
+class TestRenderTranscripts:
+    def test_renders_speaker_and_text(self, capsys):
+        from openmic.app import _render_transcripts
+        _render_transcripts([{"speaker": "Alice", "text": "hello there"}])
+        out = _strip_ansi(capsys.readouterr().out)
+        assert "Alice" in out and "hello there" in out
+
+    def test_empty_segments_do_not_raise(self, capsys):
+        from openmic.app import _render_transcripts
+        _render_transcripts([])
