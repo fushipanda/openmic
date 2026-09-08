@@ -86,9 +86,8 @@ MODEL_REGISTRY: dict[str, dict] = {
         "label": "Anthropic (Claude)",
         "env_key": "ANTHROPIC_API_KEY",
         "models": [
-            ("claude-opus-4-6", "Most capable"),
-            ("claude-sonnet-4-6", "Recommended"),
-            ("claude-3-5-sonnet-20241022", "Stable"),
+            ("claude-opus-5", "Most capable"),
+            ("claude-sonnet-5", "Recommended"),
             ("claude-haiku-4-5-20251001", "Fastest"),
         ],
     },
@@ -99,8 +98,6 @@ MODEL_REGISTRY: dict[str, dict] = {
             ("gpt-5.4", "Most capable"),
             ("gpt-5.4-pro", "Highest quality"),
             ("gpt-4.1-mini", "Fast & efficient"),
-            ("o3", "Reasoning"),
-            ("o3-mini", "Fast reasoning"),
         ],
     },
     "gemini": {
@@ -116,10 +113,8 @@ MODEL_REGISTRY: dict[str, dict] = {
         "label": "OpenRouter",
         "env_key": "OPENROUTER_API_KEY",
         "models": [
-            ("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B"),
             ("mistralai/mistral-large", "Mistral Large"),
             ("deepseek/deepseek-chat", "DeepSeek Chat"),
-            ("qwen/qwen-2.5-72b-instruct", "Qwen 2.5 72B"),
         ],
     },
 }
@@ -2180,7 +2175,7 @@ Commands:
   openmic notes                  Show or generate notes for latest transcript
   openmic list                   List saved transcripts
   openmic model                  Interactive model picker
-  openmic model <provider> <id>  Set model directly (e.g. anthropic claude-sonnet-4-6)
+  openmic model <provider> <id>  Set model directly (e.g. anthropic claude-sonnet-5)
   openmic update                 Self-update
   openmic setup                  Re-run setup wizard
   openmic --version              Show version
