@@ -282,8 +282,11 @@ openmic/
 ├── audio.py            # Mic capture via sounddevice — writes 16kHz mono WAV
 ├── local_transcribe.py # faster-whisper transcription (realtime VAD + batch, GPU-accelerated)
 ├── storage.py          # File I/O for transcripts/ and notes/ markdown files
+├── session.py          # Session records — JSONL append log, slugs, titles
 ├── rag.py              # LangChain RAG — FAISS vector store + RetrievalQA chain
 ├── notes.py            # LangChain summarization chain
+├── templates.py        # Notes template loading and rendering
+├── mcp_server.py       # FastMCP server exposing transcripts (openmic-mcp)
 ├── setup.py            # Interactive setup wizard
 └── version.py          # Version management and self-update
 ```
@@ -322,8 +325,10 @@ OpenMic has a full test suite covering:
 
 - `tests/test_storage.py` — Storage layer
 - `tests/test_local_transcribe.py` — Local transcription and VAD
+- `tests/test_session.py` — Session records, slugs, and titles
 - `tests/test_rag.py` — RAG pipeline integration
 - `tests/test_notes.py` — Notes generation
+- `tests/test_templates.py` — Notes templates
 - `tests/test_app.py` — CLI and REPL
 - `tests/test_setup.py` — Setup wizard
 - `tests/test_version.py` — Version management
