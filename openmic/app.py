@@ -185,6 +185,7 @@ HELP_COMMANDS = [
     ("/notes",      "",           "Generate notes (with template selection)"),
     ("/notes",      "<template>", "Regenerate notes with a specific template"),
     ("/notes copy", "",           "Copy latest notes to clipboard"),
+    ("/copy",       "",           "Copy latest notes to the clipboard"),
     ("/notes export", "",         "Export latest notes to a markdown file (use 'html' for email-ready output)"),
     ("/regen",      "",           "Regenerate notes using the saved template"),
     ("/model",      "",           "Select LLM provider and model"),
@@ -194,6 +195,7 @@ HELP_COMMANDS = [
     ("/clear",      "",           "Exit active session and clear the screen"),
     ("/verbose",    "",           "Toggle debug output"),
     ("/version",    "",           "Show version and check for updates"),
+    ("/help",       "",           "Show this command reference"),
     ("/exit",       "",           "Quit OpenMic"),
 ]
 
@@ -212,6 +214,9 @@ def _command_insert(cmd: str, args: str) -> str:
 _COMMAND_ALIASES: dict[str, tuple[str, str]] = {
     "/history": ("/resume", "alias for /resume"),
     "/session": ("/resume", "alias for /resume"),
+    "/sessions": ("/resume", "alias for /resume"),
+    "/transcripts": ("/resume", "alias for /resume"),
+    "/recording": ("/record", "alias for /record"),
 }
 
 
@@ -1263,29 +1268,47 @@ def _notes_to_html(markdown_content: str) -> str:
     return _HTML_WRAPPER.format(body=body)
 
 
-def _copy_to_clipboard(text: str) -> bool:
-    """Copy text to clipboard. Supports macOS (pbcopy), Wayland (wl-copy), and X11 (xclip).
+def _clipboard_tool_hint() -> str:
+    """Name the clipboard tool the current platform expects, for error messages."""
+    import sys
+    if sys.platform == "darwin":
+        return "pbcopy on macOS"
+    if sys.platform == "win32":
+        return "clip or PowerShell on Windows"
+    return "wl-copy or xclip on Linux"
 
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy text to the clipboard.
+
+    macOS uses pbcopy, Windows clip (or PowerShell), Linux wl-copy or xclip.
     Returns True on success, False if no clipboard tool is available.
     """
     import subprocess
     import sys
+
     if sys.platform == "darwin":
-        candidates = [["pbcopy"]]
+        candidates = [(["pbcopy"], text.encode())]
+    elif sys.platform == "win32":
+        # clip reads UTF-16LE; feeding it UTF-8 mangles any non-ASCII text.
+        candidates = [
+            (["clip"], text.encode("utf-16-le")),
+            (["powershell", "-NoProfile", "-Command", "Set-Clipboard"], text.encode()),
+        ]
     else:
-        candidates = [["wl-copy"], ["xclip", "-selection", "clipboard"]]
-    for cmd in candidates:
+        candidates = [
+            (["wl-copy"], text.encode()),
+            (["xclip", "-selection", "clipboard"], text.encode()),
+        ]
+
+    for cmd, payload in candidates:
         try:
-            subprocess.run(cmd, input=text.encode(), check=True)
+            subprocess.run(cmd, input=payload, check=True)
             return True
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except (FileNotFoundError, subprocess.CalledProcessError, OSError):
             continue
     return False
 
-
-# ---------------------------------------------------------------------------
-# Session title generation helpers
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Recording mode
@@ -1562,7 +1585,9 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         return True
 
     if cmd == "/stop":
-        console.print("[dim]Not currently recording. Use /start to begin.[/]")
+        # The prompt_toolkit Application is not running during recording, so a
+        # slash command can never reach here mid-recording. Ctrl+C is the stop.
+        console.print("[dim]Press Ctrl+C to stop recording. Use /start to begin.[/]")
         return True
 
     # --- Clear session + chat history ---
@@ -1590,7 +1615,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
         return True
 
     # --- Notes ---
-    if cmd == "/notes copy":
+    if cmd in ("/copy", "/notes copy"):
         session_path = _get_notes_session(ctx)
         if session_path:
             content = _latest_notes_content(session_path)
@@ -1599,7 +1624,7 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
             elif _copy_to_clipboard(content):
                 console.print("[dim]Notes copied to clipboard.[/]")
             else:
-                console.print("[red]No clipboard tool found (pbcopy on macOS, wl-copy or xclip on Linux).[/]")
+                console.print(f"[red]No clipboard tool found ({_clipboard_tool_hint()}).[/]")
         return True
 
     if cmd == "/notes export html":

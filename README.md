@@ -169,20 +169,30 @@ openmic setup        # re-run the setup wizard
 | Command | Description |
 |---------|-------------|
 | `/start [name]` | Start recording (optionally with session name) |
-| `/stop [name]` | Stop recording and save transcript |
-| `/pause` | Pause recording (resume with `/start`) |
-| `/history` | Browse saved transcripts in a date-grouped list |
-| `/transcript <n>` | View a specific transcript by number or name |
-| `/query <question>` | Ask a question about a transcript (uses RAG) |
-| `/notes` | Generate structured notes from a transcript |
+| `/resume` | Browse sessions, then open one and replay its transcripts |
+| `/transcript <n>` | Open a session by number or name |
+| `/delete` | Permanently delete a session |
+| `/query <question>` | Ask a question across all transcripts (uses RAG) |
+| `/notes` | Generate structured notes (with template selection) |
+| `/notes <template>` | Regenerate notes with a specific template |
+| `/copy` | Copy the latest notes to the clipboard |
+| `/notes export` | Export latest notes to markdown (`html` for email-ready output) |
+| `/regen` | Regenerate notes using the saved template |
+| `/rename <title>` | Set a custom display title for the active session |
 | `/name <name>` | Rename the most recent transcript |
 | `/model` | Switch LLM provider or model |
+| `/transcribe` | Select Whisper model size |
+| `/clear` | Exit the active session and clear the screen |
 | `/help` | Show help with all commands and shortcuts |
 | `/verbose` | Toggle debug output |
 | `/version` | Show version and check for updates |
 | `/exit` | Quit the application |
 
-**Aliases**: `/transcripts`, `/history`, `/transcript` (no args) all open the transcript browser.
+**Stopping a recording**: press `Ctrl+C`. There is no `/stop` command — the REPL
+does not accept input while recording, so a slash command cannot reach it.
+
+**Aliases**: `/record` for `/start`; `/sessions`, `/transcripts`, `/history` and
+`/session` all open the session browser.
 
 ---
 

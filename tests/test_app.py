@@ -410,11 +410,31 @@ class TestHandleCommand:
         out = capsys.readouterr().out
         assert "No sessions" in out
 
-    def test_stop_when_not_recording(self, capsys):
+    def test_stop_points_at_ctrl_c(self, capsys):
+        """/stop can never fire mid-recording, so it must name the real stop key."""
         ctx = _make_ctx()
         asyncio.run(handle_command("/stop", ctx))
         out = capsys.readouterr().out
-        assert "Not currently recording" in out
+        assert "Ctrl+C" in out
+
+    def test_stop_not_in_visible_command_list(self):
+        from openmic.app import HELP_COMMANDS
+        assert "/stop" not in [cmd for cmd, _a, _d in HELP_COMMANDS]
+
+    def test_copy_is_listed(self):
+        from openmic.app import HELP_COMMANDS
+        assert "/copy" in [cmd for cmd, _a, _d in HELP_COMMANDS]
+
+    def test_help_is_listed(self):
+        from openmic.app import HELP_COMMANDS
+        assert "/help" in [cmd for cmd, _a, _d in HELP_COMMANDS]
+
+    def test_accepted_commands_are_listed_or_aliased(self):
+        """Commands the dispatcher accepts must be discoverable somewhere."""
+        from openmic.app import HELP_COMMANDS, _COMMAND_ALIASES
+        listed = {cmd for cmd, _a, _d in HELP_COMMANDS} | set(_COMMAND_ALIASES)
+        for cmd in ("/sessions", "/transcripts", "/recording", "/history", "/session"):
+            assert cmd in listed, f"{cmd} is accepted but undiscoverable"
 
     def test_bare_text_triggers_query(self):
         ctx = _make_ctx()
@@ -801,3 +821,67 @@ class TestRenderTranscripts:
     def test_empty_segments_do_not_raise(self, capsys):
         from openmic.app import _render_transcripts
         _render_transcripts([])
+
+
+# ---------------------------------------------------------------------------
+# Clipboard
+# ---------------------------------------------------------------------------
+
+class TestCopyToClipboard:
+    """Each platform must reach for the right tool."""
+
+    def _run_with_platform(self, platform, monkeypatch):
+        """Return the list of argv lists _copy_to_clipboard would try."""
+        import subprocess
+        from openmic.app import _copy_to_clipboard
+        monkeypatch.setattr("sys.platform", platform)
+        attempts = []
+
+        def fake_run(cmd, input=None, check=False):
+            attempts.append((cmd, input))
+            raise FileNotFoundError(cmd[0])
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = _copy_to_clipboard("hello")
+        return attempts, result
+
+    def test_macos_uses_pbcopy(self, monkeypatch):
+        attempts, result = self._run_with_platform("darwin", monkeypatch)
+        assert [c for c, _ in attempts] == [["pbcopy"]]
+        assert result is False
+
+    def test_linux_tries_wl_copy_then_xclip(self, monkeypatch):
+        attempts, _ = self._run_with_platform("linux", monkeypatch)
+        assert [c for c, _ in attempts] == [
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+        ]
+
+    def test_windows_tries_clip_then_powershell(self, monkeypatch):
+        attempts, _ = self._run_with_platform("win32", monkeypatch)
+        assert [c for c, _ in attempts] == [
+            ["clip"],
+            ["powershell", "-NoProfile", "-Command", "Set-Clipboard"],
+        ]
+
+    def test_windows_clip_gets_utf16le(self, monkeypatch):
+        """UTF-8 into clip mangles non-ASCII, so the payload must be UTF-16LE."""
+        attempts, _ = self._run_with_platform("win32", monkeypatch)
+        clip_cmd, clip_payload = attempts[0]
+        assert clip_payload == "hello".encode("utf-16-le")
+
+    def test_success_short_circuits(self, monkeypatch):
+        import subprocess
+        from openmic.app import _copy_to_clipboard
+        monkeypatch.setattr("sys.platform", "win32")
+        calls = []
+        monkeypatch.setattr(subprocess, "run",
+                            lambda cmd, input=None, check=False: calls.append(cmd))
+        assert _copy_to_clipboard("hello") is True
+        assert calls == [["clip"]]
+
+    def test_hint_names_the_platform_tool(self, monkeypatch):
+        from openmic.app import _clipboard_tool_hint
+        for platform, expected in [("darwin", "pbcopy"), ("win32", "clip"), ("linux", "wl-copy")]:
+            monkeypatch.setattr("sys.platform", platform)
+            assert expected in _clipboard_tool_hint()
