@@ -1,19 +1,56 @@
 """Storage utilities for transcripts and notes."""
 
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 
 
+_PLACEHOLDER_RE = re.compile(r'^[\[<].*[\]>]$')
+
+
+def is_placeholder_name(name: str | None) -> bool:
+    """True if `name` is wholly an argument-hint placeholder like '[name]' or '<title>'.
+
+    Completion hints are display-only, but a user can still type or paste one.
+    Treating such a value as "no name given" stops it becoming a real session
+    called 'name' once the brackets are stripped.
+    """
+    return bool(name) and bool(_PLACEHOLDER_RE.match(name.strip()))
+
+
 def _sanitize_name(name: str) -> str:
-    """Strip unsafe characters from session names to prevent path traversal."""
+    """Strip unsafe characters from session names to prevent path traversal.
+
+    Returns "" for a bare argument-hint placeholder, so callers fall back to
+    their unnamed-session behaviour instead of creating a session named after
+    the hint.
+    """
+    if is_placeholder_name(name):
+        return ""
     return re.sub(r'[^a-zA-Z0-9_\-]', '', name.strip().replace(" ", "_"))
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TRANSCRIPTS_DIR = _PROJECT_ROOT / "transcripts"
-NOTES_DIR = _PROJECT_ROOT / "notes"
-RECORDINGS_DIR = _PROJECT_ROOT / "recordings"
+def _data_dir() -> Path:
+    """Return the user-level directory holding transcripts, notes and sessions.
+
+    Honours OPENMIC_DATA_DIR, then XDG_DATA_HOME, falling back to
+    ~/.local/share/openmic. Resolving against the user rather than the
+    package keeps data outside site-packages, where a non-editable install
+    would otherwise put it and an upgrade would delete it.
+    """
+    override = os.environ.get("OPENMIC_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
+    return base / "openmic"
+
+
+DATA_DIR = _data_dir()
+TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
+NOTES_DIR = DATA_DIR / "notes"
+RECORDINGS_DIR = DATA_DIR / "recordings"
 
 
 def format_transcript_title(timestamp: str, session_name: str | None = None) -> str:
@@ -46,9 +83,9 @@ def format_transcript_title(timestamp: str, session_name: str | None = None) -> 
 
 def ensure_dirs() -> None:
     """Create storage directories if they don't exist."""
-    TRANSCRIPTS_DIR.mkdir(exist_ok=True)
-    NOTES_DIR.mkdir(exist_ok=True)
-    RECORDINGS_DIR.mkdir(exist_ok=True)
+    TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_transcript(segments: list[dict], session_name: str | None = None) -> Path:

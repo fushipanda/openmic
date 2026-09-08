@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Nothing else verifies that the tag and pyproject.toml agree, so a
+      # forgotten version bump would otherwise ship silently.
+      - name: Verify tag matches pyproject version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pyproject=$(python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          echo "tag=$tag pyproject=$pyproject"
+          if [ "$tag" != "$pyproject" ]; then
+            echo "::error::Tag v$tag does not match pyproject.toml version $pyproject"
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,local,anthropic,openai,mcp]"
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+      - name: Build sdist and wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes dist/*

@@ -4,6 +4,7 @@
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](#platform-support)
 [![Tests](https://github.com/fushipanda/openmic/actions/workflows/tests.yml/badge.svg)](https://github.com/fushipanda/openmic/actions/workflows/tests.yml)
+[![Release](https://github.com/fushipanda/openmic/actions/workflows/release.yml/badge.svg)](https://github.com/fushipanda/openmic/actions/workflows/release.yml)
 
 > A privacy-first CLI for capturing and structuring spoken thought. Start a session, speak freely — OpenMic turns what you say into searchable, AI-ready data, entirely on your machine.
 
@@ -138,11 +139,22 @@ You can re-run `openmic setup` at any time to reconfigure.
 ### Start the Application
 
 ```bash
-openmic              # launch the CLI
-openmic --version    # show installed version
-openmic update       # self-update to latest release
-openmic setup        # re-run the setup wizard
+openmic                             # launch the interactive REPL
+openmic "what did we decide"        # one-shot query, prints and exits
+openmic record                      # record, then drop into the REPL
+openmic record -n "team standup"    # record into a named session
+openmic resume                      # pick a session, then enter the REPL
+openmic query "who attended"        # explicit one-shot query
+openmic notes                       # show or generate notes for the latest transcript
+openmic list                        # list saved transcripts
+openmic model                       # interactive model picker
+openmic model anthropic claude-sonnet-5   # set provider and model directly
+openmic --version                   # show installed version
+openmic update                      # self-update to latest release
+openmic setup                       # re-run the setup wizard
 ```
+
+Run `openmic --help`, or `openmic <command> --help`, for the full reference.
 
 ### Quick Example Workflow
 
@@ -169,20 +181,30 @@ openmic setup        # re-run the setup wizard
 | Command | Description |
 |---------|-------------|
 | `/start [name]` | Start recording (optionally with session name) |
-| `/stop [name]` | Stop recording and save transcript |
-| `/pause` | Pause recording (resume with `/start`) |
-| `/history` | Browse saved transcripts in a date-grouped list |
-| `/transcript <n>` | View a specific transcript by number or name |
-| `/query <question>` | Ask a question about a transcript (uses RAG) |
-| `/notes` | Generate structured notes from a transcript |
+| `/resume` | Browse sessions, then open one and replay its transcripts |
+| `/transcript <n>` | Open a session by number or name |
+| `/delete` | Permanently delete a session |
+| `/query <question>` | Ask a question across all transcripts (uses RAG) |
+| `/notes` | Generate structured notes (with template selection) |
+| `/notes <template>` | Regenerate notes with a specific template |
+| `/copy` | Copy the latest notes to the clipboard |
+| `/notes export` | Export latest notes to markdown (`html` for email-ready output) |
+| `/regen` | Regenerate notes using the saved template |
+| `/rename <title>` | Set a custom display title for the active session |
 | `/name <name>` | Rename the most recent transcript |
 | `/model` | Switch LLM provider or model |
+| `/transcribe` | Select Whisper model size |
+| `/clear` | Exit the active session and clear the screen |
 | `/help` | Show help with all commands and shortcuts |
 | `/verbose` | Toggle debug output |
 | `/version` | Show version and check for updates |
 | `/exit` | Quit the application |
 
-**Aliases**: `/transcripts`, `/history`, `/transcript` (no args) all open the transcript browser.
+**Stopping a recording**: press `Ctrl+C`. There is no `/stop` command — the REPL
+does not accept input while recording, so a slash command cannot reach it.
+
+**Aliases**: `/record` for `/start`; `/sessions`, `/transcripts`, `/history` and
+`/session` all open the session browser.
 
 ---
 
@@ -282,8 +304,11 @@ openmic/
 ├── audio.py            # Mic capture via sounddevice — writes 16kHz mono WAV
 ├── local_transcribe.py # faster-whisper transcription (realtime VAD + batch, GPU-accelerated)
 ├── storage.py          # File I/O for transcripts/ and notes/ markdown files
+├── session.py          # Session records — JSONL append log, slugs, titles
 ├── rag.py              # LangChain RAG — FAISS vector store + RetrievalQA chain
 ├── notes.py            # LangChain summarization chain
+├── templates.py        # Notes template loading and rendering
+├── mcp_server.py       # FastMCP server exposing transcripts (openmic-mcp)
 ├── setup.py            # Interactive setup wizard
 └── version.py          # Version management and self-update
 ```
@@ -322,8 +347,10 @@ OpenMic has a full test suite covering:
 
 - `tests/test_storage.py` — Storage layer
 - `tests/test_local_transcribe.py` — Local transcription and VAD
+- `tests/test_session.py` — Session records, slugs, and titles
 - `tests/test_rag.py` — RAG pipeline integration
 - `tests/test_notes.py` — Notes generation
+- `tests/test_templates.py` — Notes templates
 - `tests/test_app.py` — CLI and REPL
 - `tests/test_setup.py` — Setup wizard
 - `tests/test_version.py` — Version management

@@ -336,7 +336,7 @@ class LocalRealtimeTranscriber:
                 if speech_start_byte is not None:
                     if (bytes_processed - speech_start_byte) >= _MAX_SPEECH_BYTES:
                         segment = bytes(rolling_buffer[speech_start_byte : bytes_processed])
-                        self._dbg(f"VAD: 30s ceiling — force-flushing to whisper")
+                        self._dbg("VAD: 30s ceiling — force-flushing to whisper")
                         speech_start_byte = bytes_processed
                         silence_frames    = 0
                         loop = asyncio.get_event_loop()

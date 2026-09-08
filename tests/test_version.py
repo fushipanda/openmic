@@ -137,11 +137,13 @@ def test_get_upgrade_command_all_methods():
 
 
 def test_main_version_flag(capsys):
-    """openmic --version prints version to stdout."""
+    """openmic --version prints the version, then exits 0 as argparse does."""
     with patch("sys.argv", ["openmic", "--version"]):
         from openmic.app import main
 
         with patch("openmic.version.version", return_value="0.1.0"):
-            main()
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
         output = capsys.readouterr().out
         assert "openmic 0.1.0" in output

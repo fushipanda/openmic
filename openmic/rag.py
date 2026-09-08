@@ -50,14 +50,14 @@ def get_llm():
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model or "gpt-4o-mini")
+        return ChatOpenAI(model=model or "gpt-4.1-mini")
     elif provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model or "gemini-2.0-flash")
+        return ChatGoogleGenerativeAI(model=model or "gemini-2.5-flash")
     elif provider == "openrouter":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
-            model=model or "meta-llama/llama-3.3-70b-instruct",
+            model=model or "mistralai/mistral-large",
             openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
         )
@@ -70,49 +70,16 @@ def get_llm():
         kwargs = {}
         if os.environ.get("LLM_EXTENDED_THINKING", "").lower() == "true":
             kwargs["model_kwargs"] = {"thinking": {"type": "enabled", "budget_tokens": 8000}}
-        return ChatAnthropic(model=model or "claude-3-5-sonnet-20241022", **kwargs)
+        return ChatAnthropic(model=model or "claude-sonnet-5", **kwargs)
 
 
 def _session_display_name(session_path: Path) -> str:
-    """Return the best available display name for a session (customTitle > autoTitle > slug)."""
+    """Return the best available display name for a session (customTitle > slug)."""
     try:
         data = read_session(session_path)
         return display_title(data).replace("_", " ").strip()
     except Exception:
         return session_path.stem.replace("_", " ").strip()
-
-
-def generate_session_title(session_path: Path, word_threshold: int = 30) -> str | None:
-    """Generate a short AI title from a session's transcript content.
-
-    Returns None if the transcript has fewer than word_threshold words or if
-    the LLM call fails for any reason (title is optional metadata).
-    """
-    text = session_to_text(session_path)
-    if len(text.split()) < word_threshold:
-        return None
-
-    # Use only the first ~800 words to keep the call cheap
-    excerpt = " ".join(text.split()[:800])
-    llm = get_llm()
-    prompt = ChatPromptTemplate.from_messages([
-        ("system",
-         "Generate a short, specific meeting title from this transcript excerpt.\n"
-         "Rules:\n"
-         "- 3–7 words, sentence case\n"
-         "- Reflect the actual topic or action discussed\n"
-         "- Avoid vague labels: 'Meeting', 'Transcript', 'Discussion', 'Session', 'Notes'\n"
-         "- Return ONLY a JSON object: {\"title\": \"...\"}"),
-        ("human", "{text}"),
-    ])
-    try:
-        chain = prompt | llm
-        result = chain.invoke({"text": excerpt})
-        parsed = json.loads(result.content)
-        title = parsed.get("title")
-        return str(title).strip() if title else None
-    except Exception:
-        return None
 
 
 class TranscriptRAG:

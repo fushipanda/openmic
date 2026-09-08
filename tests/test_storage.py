@@ -16,6 +16,8 @@ from openmic.storage import (
     list_transcripts,
     save_notes,
     format_transcript_title,
+    is_placeholder_name,
+    _sanitize_name,
 )
 
 
@@ -192,3 +194,83 @@ class TestFormatTranscriptTitle:
         assert "not-a-date" in title
 
 
+
+
+class TestDataDirLocation:
+    """Data must resolve against the user, not the installed package.
+
+    A non-editable install (pipx / uv tool / pip --user, i.e. every path in
+    install.sh) puts storage.py inside site-packages. Deriving data dirs from
+    __file__ therefore wrote transcripts into site-packages, where a tool
+    upgrade deletes them.
+    """
+
+    def test_data_dir_not_derived_from_package_location(self):
+        """Data dirs must not sit next to the installed package."""
+        from openmic.storage import _data_dir
+        import openmic.storage as storage_mod
+
+        package_parent = Path(storage_mod.__file__).resolve().parent.parent
+        assert _data_dir() != package_parent
+        assert package_parent not in _data_dir().parents
+
+    def test_default_is_xdg_local_share(self, monkeypatch):
+        """With no overrides, data lives in ~/.local/share/openmic."""
+        from openmic.storage import _data_dir
+
+        monkeypatch.delenv("OPENMIC_DATA_DIR", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        assert _data_dir() == Path.home() / ".local" / "share" / "openmic"
+
+    def test_xdg_data_home_is_honoured(self, monkeypatch, tmp_path):
+        """XDG_DATA_HOME relocates the data dir."""
+        from openmic.storage import _data_dir
+
+        monkeypatch.delenv("OPENMIC_DATA_DIR", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        assert _data_dir() == tmp_path / "openmic"
+
+    def test_openmic_data_dir_overrides_xdg(self, monkeypatch, tmp_path):
+        """OPENMIC_DATA_DIR takes precedence over XDG_DATA_HOME."""
+        from openmic.storage import _data_dir
+
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+        monkeypatch.setenv("OPENMIC_DATA_DIR", str(tmp_path / "explicit"))
+        assert _data_dir() == tmp_path / "explicit"
+
+    def test_ensure_dirs_creates_missing_parents(self, monkeypatch, tmp_path):
+        """A fresh install has no parent chain; ensure_dirs must build it."""
+        nested = tmp_path / "no" / "such" / "tree"
+        monkeypatch.setattr("openmic.storage.TRANSCRIPTS_DIR", nested / "transcripts")
+        monkeypatch.setattr("openmic.storage.NOTES_DIR", nested / "notes")
+        monkeypatch.setattr("openmic.storage.RECORDINGS_DIR", nested / "recordings")
+
+        assert not nested.exists()
+        ensure_dirs()
+        assert (nested / "transcripts").is_dir()
+        assert (nested / "notes").is_dir()
+        assert (nested / "recordings").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Argument-hint placeholders
+# ---------------------------------------------------------------------------
+
+class TestPlaceholderNames:
+    """A hint typed in literally ("/start [name]") must not become a session name."""
+
+    @pytest.mark.parametrize("value", ["[name]", "<title>", "  [name]  ", "<question>"])
+    def test_placeholders_detected(self, value):
+        assert is_placeholder_name(value)
+
+    @pytest.mark.parametrize("value", ["standup", "", "name", "[unclosed", "budget [q3]"])
+    def test_real_names_not_flagged(self, value):
+        assert not is_placeholder_name(value)
+
+    def test_sanitize_rejects_placeholder(self):
+        """Without the guard this returned 'name' and created a bogus session."""
+        assert _sanitize_name("[name]") == ""
+        assert _sanitize_name("<title>") == ""
+
+    def test_sanitize_keeps_real_names(self):
+        assert _sanitize_name("team standup") == "team_standup"

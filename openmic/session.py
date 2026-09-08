@@ -5,13 +5,13 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from openmic.storage import _PROJECT_ROOT, _sanitize_name
+from openmic.storage import DATA_DIR, _sanitize_name
 
-SESSIONS_DIR = _PROJECT_ROOT / "sessions"
+SESSIONS_DIR = DATA_DIR / "sessions"
 
 
 def _random_slug() -> str:
-    """Generate a friendly three-word slug for unnamed sessions (e.g. 'calm-silver-ridge')."""
+    """Generate a friendly two-word slug for unnamed sessions (e.g. 'calm-ibis')."""
     from coolname import generate_slug
     return generate_slug(2)
 
@@ -35,7 +35,7 @@ def create_session(name: str | None = None) -> Path:
     Returns:
         Path to the new session file.
     """
-    SESSIONS_DIR.mkdir(exist_ok=True)
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     if name:
         safe = _sanitize_name(name)
@@ -108,24 +108,6 @@ def append_notes(session_path: Path, content: str, template: str) -> None:
     _append(session_path, entry)
 
 
-def append_title_update(session_path: Path, auto_title: str, model: str) -> None:
-    """Append an AI-generated title entry to the session.
-
-    Args:
-        session_path: Path to the session JSONL file.
-        auto_title: Short AI-generated title string.
-        model: Model identifier used to generate the title.
-    """
-    entry = {
-        "type": "title_update",
-        "id": str(uuid.uuid4()),
-        "timestamp": _now(),
-        "autoTitle": auto_title,
-        "model": model,
-    }
-    _append(session_path, entry)
-
-
 def append_rename(session_path: Path, custom_title: str) -> None:
     """Append a user-defined rename entry to the session.
 
@@ -145,16 +127,15 @@ def append_rename(session_path: Path, custom_title: str) -> None:
 def display_title(session_data: dict) -> str:
     """Return the best available display title for a session.
 
-    Precedence: customTitle > autoTitle > slug (humanised) > name > id
+    Precedence: customTitle > slug (humanised) > name > id
+
+    Unnamed sessions get their identity from the coolname slug assigned at
+    creation; an explicit name writes a customTitle via append_rename().
     """
     slug = session_data["meta"].get("slug", "")
     name = session_data["meta"].get("name", "")
     fallback = slug if slug else (name or session_data["meta"].get("id", "unknown"))
-    return (
-        session_data.get("customTitle")
-        or session_data.get("autoTitle")
-        or fallback
-    )
+    return session_data.get("customTitle") or fallback
 
 
 def get_session_meta(session_path: Path) -> dict:
@@ -177,14 +158,13 @@ def read_session(session_path: Path) -> dict:
     Returns:
         Dict with keys:
           "meta", "transcripts" (list), "notes" (list),
-          "autoTitle" (str | None), "customTitle" (str | None),
+          "customTitle" (str | None),
           "updatedAt" (float | None), "lastTranscriptAt" (str | None).
     """
     result: dict = {
         "meta": {},
         "transcripts": [],
         "notes": [],
-        "autoTitle": None,
         "customTitle": None,
         "updatedAt": None,
         "lastTranscriptAt": None,
@@ -206,9 +186,6 @@ def read_session(session_path: Path) -> dict:
                     result["transcripts"].append(entry)
                 elif t == "notes":
                     result["notes"].append(entry)
-                elif t == "title_update":
-                    # Last title_update wins
-                    result["autoTitle"] = entry.get("autoTitle")
                 elif t == "rename":
                     # Last rename wins
                     result["customTitle"] = entry.get("customTitle")

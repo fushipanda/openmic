@@ -161,8 +161,8 @@ class TestUsageTracker:
         assert tracker.llm_tokens == 300
 
     def test_current_model_label_from_env(self, monkeypatch):
-        monkeypatch.setenv("LLM_MODEL", "claude-sonnet-4-6")
-        assert UsageTracker.current_model_label() == "claude-sonnet-4-6"
+        monkeypatch.setenv("LLM_MODEL", "claude-sonnet-5")
+        assert UsageTracker.current_model_label() == "claude-sonnet-5"
 
     def test_current_model_label_fallback(self, monkeypatch):
         monkeypatch.delenv("LLM_MODEL", raising=False)
@@ -179,25 +179,37 @@ class TestUsageTracker:
 class TestHelpCommands:
 
     def test_help_includes_exit(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
         assert "/exit" in cmds
 
     def test_help_includes_query(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
-        assert any("/query" in cmd for cmd in cmds)
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
+        assert "/query" in cmds
 
     def test_help_includes_notes(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
         assert "/notes" in cmds
 
     def test_help_includes_start(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
-        assert any("/start" in cmd for cmd in cmds)
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
+        assert "/start" in cmds
 
     def test_all_entries_have_descriptions(self):
-        for cmd, desc in HELP_COMMANDS:
+        for cmd, _args, desc in HELP_COMMANDS:
             if cmd:
                 assert desc, f"{cmd} has no description"
+
+    def test_no_command_embeds_its_argument_hint(self):
+        """The command field must be bare — hints live in the args field."""
+        for cmd, _args, _desc in HELP_COMMANDS:
+            assert "[" not in cmd and "<" not in cmd, f"{cmd} embeds an arg hint"
+
+    def test_insert_text_never_contains_hint(self):
+        from openmic.app import _command_insert, _command_display
+        assert _command_insert("/start", "[name]") == "/start "
+        assert _command_insert("/resume", "") == "/resume"
+        assert _command_display("/start", "[name]") == "/start [name]"
+        assert _command_display("/resume", "") == "/resume"
 
     def test_model_registry_has_required_providers(self):
         assert "anthropic" in MODEL_REGISTRY
@@ -384,12 +396,12 @@ class TestHandleCommand:
         ctx = _make_ctx()
         monkeypatch.delenv("LLM_PROVIDER", raising=False)
         monkeypatch.delenv("LLM_MODEL", raising=False)
-        with patch("openmic.app.pick_model", return_value=("anthropic", "claude-sonnet-4-6")), \
+        with patch("openmic.app.pick_model", return_value=("anthropic", "claude-sonnet-5")), \
              patch("openmic.app._load_config", return_value={}), \
              patch("openmic.app._save_config"):
             asyncio.run(handle_command("/model", ctx))
         assert os.environ.get("LLM_PROVIDER") == "anthropic"
-        assert os.environ.get("LLM_MODEL") == "claude-sonnet-4-6"
+        assert os.environ.get("LLM_MODEL") == "claude-sonnet-5"
 
     def test_sessions_no_sessions(self, capsys):
         ctx = _make_ctx()
@@ -398,11 +410,31 @@ class TestHandleCommand:
         out = capsys.readouterr().out
         assert "No sessions" in out
 
-    def test_stop_when_not_recording(self, capsys):
+    def test_stop_points_at_ctrl_c(self, capsys):
+        """/stop can never fire mid-recording, so it must name the real stop key."""
         ctx = _make_ctx()
         asyncio.run(handle_command("/stop", ctx))
         out = capsys.readouterr().out
-        assert "Not currently recording" in out
+        assert "Ctrl+C" in out
+
+    def test_stop_not_in_visible_command_list(self):
+        from openmic.app import HELP_COMMANDS
+        assert "/stop" not in [cmd for cmd, _a, _d in HELP_COMMANDS]
+
+    def test_copy_is_listed(self):
+        from openmic.app import HELP_COMMANDS
+        assert "/copy" in [cmd for cmd, _a, _d in HELP_COMMANDS]
+
+    def test_help_is_listed(self):
+        from openmic.app import HELP_COMMANDS
+        assert "/help" in [cmd for cmd, _a, _d in HELP_COMMANDS]
+
+    def test_accepted_commands_are_listed_or_aliased(self):
+        """Commands the dispatcher accepts must be discoverable somewhere."""
+        from openmic.app import HELP_COMMANDS, _COMMAND_ALIASES
+        listed = {cmd for cmd, _a, _d in HELP_COMMANDS} | set(_COMMAND_ALIASES)
+        for cmd in ("/sessions", "/transcripts", "/recording", "/history", "/session"):
+            assert cmd in listed, f"{cmd} is accepted but undiscoverable"
 
     def test_bare_text_triggers_query(self):
         ctx = _make_ctx()
@@ -456,28 +488,42 @@ class TestMentionResolution:
 class TestMainRouting:
 
     def test_version_flag(self, capsys):
+        """argparse's version action prints and exits 0."""
         with patch("sys.argv", ["openmic", "--version"]), \
              patch("openmic.version.get_version", return_value="1.2.3"):
             from openmic.app import main
-            main()
-        out = capsys.readouterr().out
-        assert "1.2.3" in out
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
+        assert "1.2.3" in capsys.readouterr().out
 
     def test_version_flag_short(self, capsys):
         with patch("sys.argv", ["openmic", "-V"]), \
              patch("openmic.version.get_version", return_value="2.0.0"):
             from openmic.app import main
-            main()
-        out = capsys.readouterr().out
-        assert "2.0.0" in out
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
+        assert "2.0.0" in capsys.readouterr().out
 
     def test_help_flag(self, capsys):
         with patch("sys.argv", ["openmic", "--help"]):
             from openmic.app import main
-            main()
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
         out = capsys.readouterr().out
         assert "record" in out
         assert "query" in out
+
+    def test_help_lists_every_subcommand(self, capsys):
+        with patch("sys.argv", ["openmic", "--help"]):
+            from openmic.app import main
+            with pytest.raises(SystemExit):
+                main()
+        out = capsys.readouterr().out
+        for name in ("record", "resume", "query", "notes", "list", "model", "update", "setup"):
+            assert name in out, f"{name} missing from --help"
 
     def test_bare_string_routes_to_oneshot_query(self):
         with patch("sys.argv", ["openmic", "what was discussed"]), \
@@ -500,12 +546,21 @@ class TestMainRouting:
             main()
         mock_q.assert_called_once_with("test question")
 
-    def test_query_flag(self):
-        with patch("sys.argv", ["openmic", "--query", "test"]), \
-             patch("openmic.app._run_oneshot_query") as mock_q:
+    @pytest.mark.parametrize("flag", ["--query", "-q", "--record", "-r"])
+    def test_dash_aliases_are_rejected(self, flag):
+        """Dash forms are dropped — subcommands are the canonical spelling."""
+        with patch("sys.argv", ["openmic", flag, "test"]):
+            from openmic.app import main
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+
+    def test_query_subcommand_with_no_text_opens_repl(self):
+        with patch("sys.argv", ["openmic", "query"]), \
+             patch("openmic.app._run_interactive") as mock_i:
             from openmic.app import main
             main()
-        mock_q.assert_called_once_with("test")
+        mock_i.assert_called_once_with()
 
     def test_notes_subcommand(self):
         with patch("sys.argv", ["openmic", "notes"]), \
@@ -529,11 +584,11 @@ class TestMainRouting:
         mock_m.assert_called_once_with([])
 
     def test_model_with_args(self):
-        with patch("sys.argv", ["openmic", "model", "anthropic", "claude-sonnet-4-6"]), \
+        with patch("sys.argv", ["openmic", "model", "anthropic", "claude-sonnet-5"]), \
              patch("openmic.app._run_set_model") as mock_m:
             from openmic.app import main
             main()
-        mock_m.assert_called_once_with(["anthropic", "claude-sonnet-4-6"])
+        mock_m.assert_called_once_with(["anthropic", "claude-sonnet-5"])
 
     def test_record_subcommand(self):
         with patch("sys.argv", ["openmic", "record"]), \
@@ -542,24 +597,78 @@ class TestMainRouting:
             main()
         mock_i.assert_called_once_with(record=True, session_name=None)
 
-    def test_record_with_session_name(self):
-        with patch("sys.argv", ["openmic", "record", "standup"]), \
+    @pytest.mark.parametrize("flag", ["-n", "--name"])
+    def test_record_with_session_name(self, flag):
+        with patch("sys.argv", ["openmic", "record", flag, "standup"]), \
              patch("openmic.app._run_interactive") as mock_i:
             from openmic.app import main
             main()
         mock_i.assert_called_once_with(record=True, session_name="standup")
 
+    def test_record_name_preserves_spaces(self):
+        """-n replaces the old underscore-joining of positional args."""
+        with patch("sys.argv", ["openmic", "record", "-n", "team standup"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with(record=True, session_name="team standup")
+
+    def test_resume_subcommand(self):
+        with patch("sys.argv", ["openmic", "resume"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with(resume=True)
+
+    def test_no_args_opens_repl(self):
+        with patch("sys.argv", ["openmic"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with()
+
+    def test_update_resolves_before_bootstrap(self):
+        """update/setup must not require config to exist."""
+        with patch("sys.argv", ["openmic", "update"]), \
+             patch("openmic.version.run_update") as mock_u, \
+             patch("openmic.app._bootstrap", side_effect=AssertionError("bootstrap ran")):
+            from openmic.app import main
+            main()
+        mock_u.assert_called_once()
+
+    def test_setup_resolves_before_bootstrap(self):
+        with patch("sys.argv", ["openmic", "setup"]), \
+             patch("openmic.setup.run_setup") as mock_s, \
+             patch("openmic.app._bootstrap", side_effect=AssertionError("bootstrap ran")):
+            from openmic.app import main
+            main()
+        mock_s.assert_called_once()
+
+    def test_bare_query_beats_parse_args(self):
+        """A question starting with a non-subcommand word must not hit argparse."""
+        with patch("sys.argv", ["openmic", "list", "of", "attendees"]), \
+             patch("openmic.app._run_list_transcripts") as mock_l:
+            from openmic.app import main
+            with pytest.raises(SystemExit):
+                main()
+        # "list" IS a subcommand, so this is a parse error, not a query —
+        # documenting the one ambiguity the pre-check deliberately keeps.
+        mock_l.assert_not_called()
+
     def test_set_model_direct_valid(self, monkeypatch, tmp_path):
         config_file = tmp_path / "settings.json"
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        # Clear first — otherwise a leftover LLM_MODEL from an earlier test
+        # makes the assertion below pass without validation having run.
+        monkeypatch.delenv("LLM_MODEL", raising=False)
         with patch("openmic.app.CONFIG_FILE", config_file), \
              patch("openmic.app.CONFIG_DIR", tmp_path), \
              patch("openmic.app._update_env_file"), \
              patch("openmic.app._bootstrap", return_value={}):
             from openmic.app import _run_set_model
-            _run_set_model(["anthropic", "claude-sonnet-4-6"])
+            _run_set_model(["anthropic", "claude-sonnet-5"])
         assert os.environ.get("LLM_PROVIDER") == "anthropic"
-        assert os.environ.get("LLM_MODEL") == "claude-sonnet-4-6"
+        assert os.environ.get("LLM_MODEL") == "claude-sonnet-5"
 
     def test_set_model_unknown_provider(self, capsys):
         with patch("openmic.app._bootstrap", return_value={}):
@@ -722,3 +831,158 @@ class TestRenderMarkdown:
         # A line with | but not a valid table (no separator row following)
         render_markdown("Option A | Option B\nJust text")
         # Should not crash — rendered as plain text
+
+
+# ---------------------------------------------------------------------------
+# Session activation and transcript rendering
+# ---------------------------------------------------------------------------
+
+def _strip_ansi(s: str) -> str:
+    import re
+    return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+
+class TestActivateSession:
+    """Opening a session must show what it already contains."""
+
+    @pytest.fixture
+    def session_with_two_recordings(self, tmp_path, monkeypatch):
+        sessions = tmp_path / "sessions"
+        sessions.mkdir()
+        monkeypatch.setattr("openmic.session.SESSIONS_DIR", sessions)
+        from openmic.session import create_session, append_transcript
+        path = create_session(None)
+        append_transcript(path, [{"speaker": "Alice", "text": "first recording line",
+                                  "start": 0.0, "end": 1.0}], 12.0)
+        append_transcript(path, [{"speaker": "Bob", "text": "second recording line",
+                                  "start": 0.0, "end": 1.0}], 8.0)
+        return path
+
+    def test_renders_all_prior_recordings(self, session_with_two_recordings, capsys):
+        from openmic.app import _activate_session
+        ctx = _make_ctx()
+        _activate_session(ctx, session_with_two_recordings)
+        out = _strip_ansi(capsys.readouterr().out)
+        assert "first recording line" in out
+        assert "second recording line" in out
+        assert "2 recordings" in out
+
+    def test_sets_active_session_state(self, session_with_two_recordings):
+        from openmic.app import _activate_session
+        ctx = _make_ctx()
+        _activate_session(ctx, session_with_two_recordings)
+        assert ctx.active_session_path == session_with_two_recordings
+        assert ctx.active_session_name
+
+    def test_uses_display_title_not_stale_meta_name(self, session_with_two_recordings, capsys):
+        """A renamed session must show the new title, not meta['name']."""
+        from openmic.app import _activate_session
+        from openmic.session import append_rename
+        append_rename(session_with_two_recordings, "Renamed Session")
+        ctx = _make_ctx()
+        _activate_session(ctx, session_with_two_recordings)
+        assert "Renamed Session" in _strip_ansi(capsys.readouterr().out)
+        assert ctx.active_session_name == "Renamed Session"
+
+
+class TestRenderTranscripts:
+    def test_renders_speaker_and_text(self, capsys):
+        from openmic.app import _render_transcripts
+        _render_transcripts([{"speaker": "Alice", "text": "hello there"}])
+        out = _strip_ansi(capsys.readouterr().out)
+        assert "Alice" in out and "hello there" in out
+
+    def test_empty_segments_do_not_raise(self, capsys):
+        from openmic.app import _render_transcripts
+        _render_transcripts([])
+
+
+# ---------------------------------------------------------------------------
+# Clipboard
+# ---------------------------------------------------------------------------
+
+class TestCopyToClipboard:
+    """Each platform must reach for the right tool."""
+
+    def _run_with_platform(self, platform, monkeypatch):
+        """Return the list of argv lists _copy_to_clipboard would try."""
+        import subprocess
+        from openmic.app import _copy_to_clipboard
+        monkeypatch.setattr("sys.platform", platform)
+        attempts = []
+
+        def fake_run(cmd, input=None, check=False):
+            attempts.append((cmd, input))
+            raise FileNotFoundError(cmd[0])
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = _copy_to_clipboard("hello")
+        return attempts, result
+
+    def test_macos_uses_pbcopy(self, monkeypatch):
+        attempts, result = self._run_with_platform("darwin", monkeypatch)
+        assert [c for c, _ in attempts] == [["pbcopy"]]
+        assert result is False
+
+    def test_linux_tries_wl_copy_then_xclip(self, monkeypatch):
+        attempts, _ = self._run_with_platform("linux", monkeypatch)
+        assert [c for c, _ in attempts] == [
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+        ]
+
+    def test_windows_tries_clip_then_powershell(self, monkeypatch):
+        attempts, _ = self._run_with_platform("win32", monkeypatch)
+        assert [c for c, _ in attempts] == [
+            ["clip"],
+            ["powershell", "-NoProfile", "-Command", "Set-Clipboard"],
+        ]
+
+    def test_windows_clip_gets_utf16le(self, monkeypatch):
+        """UTF-8 into clip mangles non-ASCII, so the payload must be UTF-16LE."""
+        attempts, _ = self._run_with_platform("win32", monkeypatch)
+        clip_cmd, clip_payload = attempts[0]
+        assert clip_payload == "hello".encode("utf-16-le")
+
+    def test_success_short_circuits(self, monkeypatch):
+        import subprocess
+        from openmic.app import _copy_to_clipboard
+        monkeypatch.setattr("sys.platform", "win32")
+        calls = []
+        monkeypatch.setattr(subprocess, "run",
+                            lambda cmd, input=None, check=False: calls.append(cmd))
+        assert _copy_to_clipboard("hello") is True
+        assert calls == [["clip"]]
+
+    def test_hint_names_the_platform_tool(self, monkeypatch):
+        from openmic.app import _clipboard_tool_hint
+        for platform, expected in [("darwin", "pbcopy"), ("win32", "clip"), ("linux", "wl-copy")]:
+            monkeypatch.setattr("sys.platform", platform)
+            assert expected in _clipboard_tool_hint()
+
+
+class TestOneshotNotes:
+    """`openmic notes` called an undefined function and crashed with NameError."""
+
+    def test_generates_notes_for_newest_session(self, tmp_path, monkeypatch):
+        sessions = [tmp_path / "newest.jsonl", tmp_path / "older.jsonl"]
+        called = {}
+
+        async def fake_generate(session_path, **kwargs):
+            called["path"] = session_path
+
+        with patch("openmic.app._bootstrap", return_value={}), \
+             patch("openmic.app.list_sessions", return_value=sessions), \
+             patch("openmic.app.TranscriptRAG"), \
+             patch("openmic.app._generate_notes_for_session", fake_generate):
+            from openmic.app import _run_oneshot_notes
+            _run_oneshot_notes()
+
+        assert called["path"] == sessions[0], "must use the newest session"
+
+    def test_no_sessions_reports_cleanly(self, capsys):
+        with patch("openmic.app._bootstrap", return_value={}), \
+             patch("openmic.app.list_sessions", return_value=[]):
+            from openmic.app import _run_oneshot_notes
+            _run_oneshot_notes()
+        assert "No sessions available" in capsys.readouterr().out
