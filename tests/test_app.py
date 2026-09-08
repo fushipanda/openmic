@@ -161,8 +161,8 @@ class TestUsageTracker:
         assert tracker.llm_tokens == 300
 
     def test_current_model_label_from_env(self, monkeypatch):
-        monkeypatch.setenv("LLM_MODEL", "claude-sonnet-4-6")
-        assert UsageTracker.current_model_label() == "claude-sonnet-4-6"
+        monkeypatch.setenv("LLM_MODEL", "claude-sonnet-5")
+        assert UsageTracker.current_model_label() == "claude-sonnet-5"
 
     def test_current_model_label_fallback(self, monkeypatch):
         monkeypatch.delenv("LLM_MODEL", raising=False)
@@ -384,12 +384,12 @@ class TestHandleCommand:
         ctx = _make_ctx()
         monkeypatch.delenv("LLM_PROVIDER", raising=False)
         monkeypatch.delenv("LLM_MODEL", raising=False)
-        with patch("openmic.app.pick_model", return_value=("anthropic", "claude-sonnet-4-6")), \
+        with patch("openmic.app.pick_model", return_value=("anthropic", "claude-sonnet-5")), \
              patch("openmic.app._load_config", return_value={}), \
              patch("openmic.app._save_config"):
             asyncio.run(handle_command("/model", ctx))
         assert os.environ.get("LLM_PROVIDER") == "anthropic"
-        assert os.environ.get("LLM_MODEL") == "claude-sonnet-4-6"
+        assert os.environ.get("LLM_MODEL") == "claude-sonnet-5"
 
     def test_sessions_no_sessions(self, capsys):
         ctx = _make_ctx()
@@ -529,11 +529,11 @@ class TestMainRouting:
         mock_m.assert_called_once_with([])
 
     def test_model_with_args(self):
-        with patch("sys.argv", ["openmic", "model", "anthropic", "claude-sonnet-4-6"]), \
+        with patch("sys.argv", ["openmic", "model", "anthropic", "claude-sonnet-5"]), \
              patch("openmic.app._run_set_model") as mock_m:
             from openmic.app import main
             main()
-        mock_m.assert_called_once_with(["anthropic", "claude-sonnet-4-6"])
+        mock_m.assert_called_once_with(["anthropic", "claude-sonnet-5"])
 
     def test_record_subcommand(self):
         with patch("sys.argv", ["openmic", "record"]), \
@@ -552,14 +552,17 @@ class TestMainRouting:
     def test_set_model_direct_valid(self, monkeypatch, tmp_path):
         config_file = tmp_path / "settings.json"
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        # Clear first — otherwise a leftover LLM_MODEL from an earlier test
+        # makes the assertion below pass without validation having run.
+        monkeypatch.delenv("LLM_MODEL", raising=False)
         with patch("openmic.app.CONFIG_FILE", config_file), \
              patch("openmic.app.CONFIG_DIR", tmp_path), \
              patch("openmic.app._update_env_file"), \
              patch("openmic.app._bootstrap", return_value={}):
             from openmic.app import _run_set_model
-            _run_set_model(["anthropic", "claude-sonnet-4-6"])
+            _run_set_model(["anthropic", "claude-sonnet-5"])
         assert os.environ.get("LLM_PROVIDER") == "anthropic"
-        assert os.environ.get("LLM_MODEL") == "claude-sonnet-4-6"
+        assert os.environ.get("LLM_MODEL") == "claude-sonnet-5"
 
     def test_set_model_unknown_provider(self, capsys):
         with patch("openmic.app._bootstrap", return_value={}):

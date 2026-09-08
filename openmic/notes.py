@@ -71,7 +71,7 @@ def get_existing_notes(transcript_path: Path) -> tuple[str, Path, Optional[str]]
 
 def generate_meeting_notes(
     transcript_path: Path, template_id: str = "default", force_regen: bool = False
-) -> tuple[str, Path, bool]:
+) -> tuple[str, Path, bool, int | None]:
     """Generate structured meeting notes from a transcript.
 
     Returns cached notes if they already exist for this transcript with the same template,
@@ -83,16 +83,17 @@ def generate_meeting_notes(
         force_regen: Skip cache and regenerate even if notes already exist
 
     Returns:
-        Tuple of (generated notes content, path to saved notes file, used_cache)
-        used_cache is True if existing notes were returned, False if new notes generated
+        Tuple of (generated notes content, path to saved notes file, used_cache, tokens_used)
+        used_cache is True if existing notes were returned, False if new notes generated.
+        tokens_used is None when serving from cache or when the provider doesn't report usage.
     """
     if not force_regen:
         existing = get_existing_notes(transcript_path)
         if existing is not None:
             existing_content, existing_path, existing_template = existing
             if existing_template == template_id:
-                return existing_content, existing_path, True
-            return existing_content, existing_path, True
+                return existing_content, existing_path, True, None
+            return existing_content, existing_path, True, None
 
     # Load template
     template_manager = TemplateManager()
@@ -123,7 +124,10 @@ def generate_meeting_notes(
     llm = get_llm()
     chain = prompt | llm
 
-    notes_content = chain.invoke({"transcript": transcript_content}).content
+    response = chain.invoke({"transcript": transcript_content})
+    notes_content = response.content
+    usage = getattr(response, "usage_metadata", None)
+    tokens_used = usage.get("total_tokens") if isinstance(usage, dict) else None
 
     # Add header with formatted title
     stem = transcript_path.stem
@@ -158,10 +162,10 @@ def generate_meeting_notes(
     full_notes = f"---\n{frontmatter_str}---\n\n{header}\n\n{notes_content}"
 
     notes_path = save_notes(full_notes, transcript_path, template_id)
-    return full_notes, notes_path, False
+    return full_notes, notes_path, False, tokens_used
 
 
-def generate_notes_for_latest(template_id: str = "default") -> tuple[str, Path, bool] | None:
+def generate_notes_for_latest(template_id: str = "default") -> tuple[str, Path, bool, int | None] | None:
     """Generate notes for the most recent transcript.
 
     Args:

@@ -50,14 +50,14 @@ def get_llm():
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model or "gpt-4o-mini")
+        return ChatOpenAI(model=model or "gpt-4.1-mini")
     elif provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model or "gemini-2.0-flash")
+        return ChatGoogleGenerativeAI(model=model or "gemini-2.5-flash")
     elif provider == "openrouter":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
-            model=model or "meta-llama/llama-3.3-70b-instruct",
+            model=model or "mistralai/mistral-large",
             openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
         )
@@ -70,7 +70,7 @@ def get_llm():
         kwargs = {}
         if os.environ.get("LLM_EXTENDED_THINKING", "").lower() == "true":
             kwargs["model_kwargs"] = {"thinking": {"type": "enabled", "budget_tokens": 8000}}
-        return ChatAnthropic(model=model or "claude-3-5-sonnet-20241022", **kwargs)
+        return ChatAnthropic(model=model or "claude-sonnet-5", **kwargs)
 
 
 def _session_display_name(session_path: Path) -> str:
