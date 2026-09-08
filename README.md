@@ -138,11 +138,22 @@ You can re-run `openmic setup` at any time to reconfigure.
 ### Start the Application
 
 ```bash
-openmic              # launch the CLI
-openmic --version    # show installed version
-openmic update       # self-update to latest release
-openmic setup        # re-run the setup wizard
+openmic                             # launch the interactive REPL
+openmic "what did we decide"        # one-shot query, prints and exits
+openmic record                      # record, then drop into the REPL
+openmic record -n "team standup"    # record into a named session
+openmic resume                      # pick a session, then enter the REPL
+openmic query "who attended"        # explicit one-shot query
+openmic notes                       # show or generate notes for the latest transcript
+openmic list                        # list saved transcripts
+openmic model                       # interactive model picker
+openmic model anthropic claude-sonnet-5   # set provider and model directly
+openmic --version                   # show installed version
+openmic update                      # self-update to latest release
+openmic setup                       # re-run the setup wizard
 ```
+
+Run `openmic --help`, or `openmic <command> --help`, for the full reference.
 
 ### Quick Example Workflow
 
