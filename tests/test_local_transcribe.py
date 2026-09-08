@@ -198,8 +198,10 @@ class TestLocalBatchTranscriber:
     def test_parse_diarized_result_splits_on_speaker_change(self):
         """Words from different speakers produce separate segments."""
         result = MagicMock()
-        w1 = FakeSegment("Hi", start=0.0, end=0.5); w1.speaker_id = "A"
-        w2 = FakeSegment("Hey", start=0.5, end=1.0); w2.speaker_id = "B"
+        w1 = FakeSegment("Hi", start=0.0, end=0.5)
+        w1.speaker_id = "A"
+        w2 = FakeSegment("Hey", start=0.5, end=1.0)
+        w2.speaker_id = "B"
         result.words = [w1, w2]
 
         segments = LocalBatchTranscriber.parse_diarized_result(result)
@@ -390,6 +392,9 @@ class TestVADTranscribeLoop:
 
     def test_aggressiveness_env_var_passed_to_vad(self, monkeypatch):
         """WHISPER_VAD_AGGRESSIVENESS must be forwarded to _try_load_webrtcvad."""
+        # Set explicitly: importing openmic.setup loads the developer's .env,
+        # so this must not depend on the ambient value.
+        monkeypatch.setenv("WHISPER_VAD_ENABLED", "true")
         monkeypatch.setenv("WHISPER_VAD_AGGRESSIVENESS", "3")
         monkeypatch.setenv("WHISPER_VAD_SILENCE_MS", "600")
 

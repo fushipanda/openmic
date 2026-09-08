@@ -959,3 +959,30 @@ class TestCopyToClipboard:
         for platform, expected in [("darwin", "pbcopy"), ("win32", "clip"), ("linux", "wl-copy")]:
             monkeypatch.setattr("sys.platform", platform)
             assert expected in _clipboard_tool_hint()
+
+
+class TestOneshotNotes:
+    """`openmic notes` called an undefined function and crashed with NameError."""
+
+    def test_generates_notes_for_newest_session(self, tmp_path, monkeypatch):
+        sessions = [tmp_path / "newest.jsonl", tmp_path / "older.jsonl"]
+        called = {}
+
+        async def fake_generate(session_path, **kwargs):
+            called["path"] = session_path
+
+        with patch("openmic.app._bootstrap", return_value={}), \
+             patch("openmic.app.list_sessions", return_value=sessions), \
+             patch("openmic.app.TranscriptRAG"), \
+             patch("openmic.app._generate_notes_for_session", fake_generate):
+            from openmic.app import _run_oneshot_notes
+            _run_oneshot_notes()
+
+        assert called["path"] == sessions[0], "must use the newest session"
+
+    def test_no_sessions_reports_cleanly(self, capsys):
+        with patch("openmic.app._bootstrap", return_value={}), \
+             patch("openmic.app.list_sessions", return_value=[]):
+            from openmic.app import _run_oneshot_notes
+            _run_oneshot_notes()
+        assert "No sessions available" in capsys.readouterr().out

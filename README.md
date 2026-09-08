@@ -4,6 +4,7 @@
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](#platform-support)
 [![Tests](https://github.com/fushipanda/openmic/actions/workflows/tests.yml/badge.svg)](https://github.com/fushipanda/openmic/actions/workflows/tests.yml)
+[![Release](https://github.com/fushipanda/openmic/actions/workflows/release.yml/badge.svg)](https://github.com/fushipanda/openmic/actions/workflows/release.yml)
 
 > A privacy-first CLI for capturing and structuring spoken thought. Start a session, speak freely — OpenMic turns what you say into searchable, AI-ready data, entirely on your machine.
 
