@@ -146,6 +146,7 @@ from openmic.storage import (
     get_latest_transcript,
     rename_transcript,
     format_transcript_title,
+    is_placeholder_name,
     TRANSCRIPTS_DIR,
     NOTES_DIR,
     RECORDINGS_DIR,
@@ -154,7 +155,6 @@ from openmic.session import (
     create_session,
     append_transcript as session_append_transcript,
     append_notes as session_append_notes,
-    append_title_update,
     append_rename,
     display_title,
     list_sessions,
@@ -162,7 +162,7 @@ from openmic.session import (
     get_session_meta,
     session_duration_s,
 )
-from openmic.rag import TranscriptRAG, generate_session_title
+from openmic.rag import TranscriptRAG
 from openmic.notes import generate_meeting_notes, get_existing_notes
 
 BANNER = """\
@@ -172,28 +172,40 @@ BANNER = """\
 ██    ██ ██      ██      ██  ██ ██ ██  ██  ██ ██ ██
  ██████  ██      ███████ ██   ████ ██      ██ ██  ██████"""
 
+# (command, argument hint, description). The argument hint is display-only —
+# it is never inserted into the buffer, so accepting a completion for "/start"
+# types "/start ", not the literal "/start [name]".
 HELP_COMMANDS = [
-    ("/start [name]",    "Start a new recording session"),
-    ("/record [name]",   "Start a new recording session"),
-    ("/stop",            "Stop recording and run batch transcription"),
-    ("/resume",          "Browse sessions and set the active session"),
-    ("/delete",          "Permanently delete a session"),
-    ("/transcript <n>",  "View a session by number or name"),
-    ("/query <question>","Ask a question across all transcripts"),
-    ("/notes",           "Generate notes (with template selection)"),
-    ("/notes <template>","Regenerate notes with a specific template"),
-    ("/notes copy",      "Copy latest notes to clipboard"),
-    ("/notes export",    "Export latest notes to a markdown file (use 'html' for email-ready output)"),
-    ("/regen",           "Regenerate notes using the saved template"),
-    ("/model",           "Select LLM provider and model"),
-    ("/transcribe",      "Select Whisper model size"),
-    ("/rename <title>",  "Set a custom display title for the active session"),
-    ("/name <name>",     "Rename the latest transcript"),
-    ("/clear",           "Exit active session and clear the screen"),
-    ("/verbose",         "Toggle debug output"),
-    ("/version",         "Show version and check for updates"),
-    ("/exit",            "Quit OpenMic"),
+    ("/start",      "[name]",     "Start a new recording session"),
+    ("/record",     "[name]",     "Start a new recording session"),
+    ("/resume",     "",           "Browse sessions and set the active session"),
+    ("/delete",     "",           "Permanently delete a session"),
+    ("/transcript", "<n>",        "View a session by number or name"),
+    ("/query",      "<question>", "Ask a question across all transcripts"),
+    ("/notes",      "",           "Generate notes (with template selection)"),
+    ("/notes",      "<template>", "Regenerate notes with a specific template"),
+    ("/notes copy", "",           "Copy latest notes to clipboard"),
+    ("/notes export", "",         "Export latest notes to a markdown file (use 'html' for email-ready output)"),
+    ("/regen",      "",           "Regenerate notes using the saved template"),
+    ("/model",      "",           "Select LLM provider and model"),
+    ("/transcribe", "",           "Select Whisper model size"),
+    ("/rename",     "<title>",    "Set a custom display title for the active session"),
+    ("/name",       "<name>",     "Rename the latest transcript"),
+    ("/clear",      "",           "Exit active session and clear the screen"),
+    ("/verbose",    "",           "Toggle debug output"),
+    ("/version",    "",           "Show version and check for updates"),
+    ("/exit",       "",           "Quit OpenMic"),
 ]
+
+
+def _command_display(cmd: str, args: str) -> str:
+    """Render a command and its argument hint for display: '/start [name]'."""
+    return f"{cmd} {args}".strip()
+
+
+def _command_insert(cmd: str, args: str) -> str:
+    """Text to type into the buffer — the command, plus a space if it takes args."""
+    return f"{cmd} " if args else cmd
 
 # Hidden aliases — appear in completions only when their prefix is typed,
 # never shown in the default "/" listing or /help table.
@@ -303,9 +315,9 @@ def print_banner() -> None:
 def print_help() -> None:
     """Print command reference table."""
     t = Table(show_header=False, box=None, padding=(0, 1))
-    for cmd, desc in HELP_COMMANDS:
+    for cmd, args, desc in HELP_COMMANDS:
         if cmd:
-            t.add_row(f"[bold #00d4aa]{cmd}[/]", f"[dim]{desc}[/]")
+            t.add_row(f"[bold #00d4aa]{_command_display(cmd, args)}[/]", f"[dim]{desc}[/]")
         else:
             t.add_row("", "")
     t.add_row("", "")
@@ -1216,28 +1228,6 @@ def _copy_to_clipboard(text: str) -> bool:
 # Session title generation helpers
 # ---------------------------------------------------------------------------
 
-def _current_model_name() -> str:
-    """Return a readable model identifier based on current env vars."""
-    provider = os.environ.get("LLM_PROVIDER", "anthropic")
-    model = os.environ.get("LLM_MODEL", "")
-    return f"{provider}/{model}" if model else provider
-
-
-async def _background_title_gen(session_path: Path) -> None:
-    """Generate and persist an autoTitle for a session silently in the background.
-
-    Uses a thread executor so the LLM call doesn't block the event loop.
-    Any failure is silently swallowed — title is optional metadata.
-    """
-    loop = asyncio.get_event_loop()
-    try:
-        title = await loop.run_in_executor(None, generate_session_title, session_path)
-        if title:
-            append_title_update(session_path, title, _current_model_name())
-    except Exception:
-        pass
-
-
 # ---------------------------------------------------------------------------
 # Recording mode
 # ---------------------------------------------------------------------------
@@ -1470,9 +1460,6 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
             session_append_transcript(active, segments, duration_s)
             data = read_session(active)
             console.print(f"[dim]Appended to session: {display_title(data).replace('_', ' ')}[/]")
-            # Fire background title generation if no autoTitle yet
-            if data.get("autoTitle") is None:
-                asyncio.create_task(_background_title_gen(active))
             _maybe_delete_wav(returned_wav)
             return active
         else:
@@ -1485,9 +1472,6 @@ async def recording_mode(session_name: str | None = None, ctx: ReplContext | Non
                 ctx.active_session_name = session_path.stem
             data = read_session(session_path)
             console.print(f"[dim]Session created: {display_title(data)}[/]")
-            # Fire background title generation only if user hasn't named the session
-            if data.get("customTitle") is None:
-                asyncio.create_task(_background_title_gen(session_path))
             _maybe_delete_wav(returned_wav)
             return session_path
 
@@ -1512,13 +1496,17 @@ async def handle_command(cmd: str, ctx: ReplContext) -> bool:
     if cmd in ("/start", "/record", "/recording") or cmd.startswith("/start ") or cmd.startswith("/record ") or cmd.startswith("/recording "):
         # Extract optional name argument from /start, /record, or /recording
         if cmd.startswith("/start "):
-            session_name = cmd[7:].strip().replace(" ", "_") or None
+            raw_name = cmd[7:]
         elif cmd.startswith("/record "):
-            session_name = cmd[8:].strip().replace(" ", "_") or None
+            raw_name = cmd[8:]
         elif cmd.startswith("/recording "):
-            session_name = cmd[11:].strip().replace(" ", "_") or None
+            raw_name = cmd[11:]
         else:
-            session_name = None
+            raw_name = ""
+        # An argument hint typed in literally ("/start [name]") is not a name.
+        if is_placeholder_name(raw_name):
+            raw_name = ""
+        session_name = raw_name.strip().replace(" ", "_") or None
         path = await recording_mode(session_name, ctx)
         if path:
             ctx.latest_transcript_path = path
@@ -1839,7 +1827,9 @@ class _CommandAutoSuggest:
 
         if text.startswith("/"):
             tl = text.lower()
-            for cmd, _ in HELP_COMMANDS:
+            for cmd, _args, _desc in HELP_COMMANDS:
+                # Suggest the command only — never the argument hint, which is
+                # display text and would otherwise be typed in literally.
                 if cmd and cmd.lower().startswith(tl) and len(cmd) > len(text):
                     return Suggestion(cmd[len(text):])
             for alias in _COMMAND_ALIASES:
@@ -1858,11 +1848,16 @@ class _CommandCompleter:
 
         if text.startswith("/"):
             tl = text.lower()
-            for cmd, desc in HELP_COMMANDS:
+            for cmd, args, desc in HELP_COMMANDS:
                 if cmd and cmd.lower().startswith(tl):
                     # start_position=-len(text) anchors the popup to the
                     # left edge of the input text, not the cursor position.
-                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
+                    yield Completion(
+                        _command_insert(cmd, args),
+                        start_position=-len(text),
+                        display=_command_display(cmd, args),
+                        display_meta=desc,
+                    )
             for alias, (_, desc) in _COMMAND_ALIASES.items():
                 if alias.startswith(tl) and tl != "/":
                     yield Completion(alias, start_position=-len(text), display_meta=desc)
@@ -1947,18 +1942,24 @@ async def repl_loop(ctx: ReplContext) -> None:
     # ── Completion display above separator ────────────────────────────────────
 
     def _get_template_commands() -> list[tuple[str, str]]:
-        """Return ('/notes <id>', description) pairs for all available templates."""
+        """Return (insert, display, description) triples for all templates."""
         try:
             from openmic.templates import TemplateManager
             tm = TemplateManager()
             return [
-                (f"/notes {t.id}", t.description or t.name)
+                (f"/notes {t.id}", f"/notes {t.id}", t.description or t.name)
                 for t in tm.get_builtin_templates() + tm.get_user_templates()
             ]
         except Exception:
             return []
 
-    def _slash_matches() -> list[tuple[str, str]]:
+    def _slash_matches() -> list[tuple[str, str, str]]:
+        """Return (insert, display, description) triples for the current input.
+
+        `insert` is what Tab/Enter put in the buffer; `display` is what the menu
+        shows. They differ for commands that take an argument, so the hint text
+        ("[name]") is never typed in literally.
+        """
         text = buf.document.text_before_cursor
         if not text.startswith("/"):
             return []
@@ -1966,13 +1967,17 @@ async def repl_loop(ctx: ReplContext) -> None:
         # When typing "/notes " show template completions instead of subcommand list
         if tl.startswith("/notes "):
             return [
-                (cmd, desc) for cmd, desc in _get_template_commands()
-                if cmd.lower().startswith(tl)
+                (ins, disp, desc) for ins, disp, desc in _get_template_commands()
+                if ins.lower().startswith(tl)
             ]
-        matches = [(cmd, desc) for cmd, desc in HELP_COMMANDS if cmd and cmd.lower().startswith(tl)]
+        matches = [
+            (_command_insert(cmd, args), _command_display(cmd, args), desc)
+            for cmd, args, desc in HELP_COMMANDS
+            if cmd and cmd.lower().startswith(tl)
+        ]
         if tl != "/":
             matches += [
-                (alias, desc) for alias, (_, desc) in _COMMAND_ALIASES.items()
+                (alias, alias, desc) for alias, (_, desc) in _COMMAND_ALIASES.items()
                 if alias.startswith(tl)
             ]
         return matches
@@ -1989,13 +1994,13 @@ async def repl_loop(ctx: ReplContext) -> None:
         idx     = _comp_idx[0]
         visible = matches[_view_offset[0]:_view_offset[0] + COMP_WINDOW]
         lines   = []
-        for i, (cmd, desc) in enumerate(visible):
+        for i, (_ins, disp, desc) in enumerate(visible):
             abs_i = i + _view_offset[0]
             if abs_i == idx:
-                lines.append(("class:completion-menu.completion.current",     f"   {cmd:<22}"))
+                lines.append(("class:completion-menu.completion.current",     f"   {disp:<22}"))
                 lines.append(("class:completion-menu.meta.completion.current", f"   {desc}\n"))
             else:
-                lines.append(("class:completion-menu.completion",              f"   {cmd:<22}"))
+                lines.append(("class:completion-menu.completion",              f"   {disp:<22}"))
                 lines.append(("class:completion-menu.meta.completion",          f"   {desc}\n"))
         return lines
 

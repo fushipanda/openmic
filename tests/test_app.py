@@ -179,25 +179,37 @@ class TestUsageTracker:
 class TestHelpCommands:
 
     def test_help_includes_exit(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
         assert "/exit" in cmds
 
     def test_help_includes_query(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
-        assert any("/query" in cmd for cmd in cmds)
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
+        assert "/query" in cmds
 
     def test_help_includes_notes(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
         assert "/notes" in cmds
 
     def test_help_includes_start(self):
-        cmds = [cmd for cmd, _ in HELP_COMMANDS]
-        assert any("/start" in cmd for cmd in cmds)
+        cmds = [cmd for cmd, _a, _d in HELP_COMMANDS]
+        assert "/start" in cmds
 
     def test_all_entries_have_descriptions(self):
-        for cmd, desc in HELP_COMMANDS:
+        for cmd, _args, desc in HELP_COMMANDS:
             if cmd:
                 assert desc, f"{cmd} has no description"
+
+    def test_no_command_embeds_its_argument_hint(self):
+        """The command field must be bare — hints live in the args field."""
+        for cmd, _args, _desc in HELP_COMMANDS:
+            assert "[" not in cmd and "<" not in cmd, f"{cmd} embeds an arg hint"
+
+    def test_insert_text_never_contains_hint(self):
+        from openmic.app import _command_insert, _command_display
+        assert _command_insert("/start", "[name]") == "/start "
+        assert _command_insert("/resume", "") == "/resume"
+        assert _command_display("/start", "[name]") == "/start [name]"
+        assert _command_display("/resume", "") == "/resume"
 
     def test_model_registry_has_required_providers(self):
         assert "anthropic" in MODEL_REGISTRY

@@ -10,7 +10,6 @@ from openmic.session import (
     SESSIONS_DIR,
     append_notes,
     append_rename,
-    append_title_update,
     append_transcript,
     create_session,
     display_title,
@@ -198,7 +197,6 @@ class TestReadSession:
         assert data["meta"] == {}
         assert data["transcripts"] == []
         assert data["notes"] == []
-        assert data["autoTitle"] is None
         assert data["customTitle"] is None
         assert data["updatedAt"] is None
         assert data["lastTranscriptAt"] is None
@@ -310,29 +308,6 @@ class TestCreateSessionSlug:
 
 
 # ---------------------------------------------------------------------------
-# append_title_update
-# ---------------------------------------------------------------------------
-
-class TestAppendTitleUpdate:
-    def test_appends_title_update_entry(self, tmp_sessions_dir):
-        path = create_session("test")
-        append_title_update(path, "Quarterly budget review", "anthropic/claude-3-5-haiku")
-        lines = path.read_text().splitlines()
-        assert len(lines) == 2
-        entry = json.loads(lines[1])
-        assert entry["type"] == "title_update"
-        assert entry["autoTitle"] == "Quarterly budget review"
-        assert entry["model"] == "anthropic/claude-3-5-haiku"
-
-    def test_appends_title_update_has_id_and_timestamp(self, tmp_sessions_dir):
-        path = create_session("test")
-        append_title_update(path, "Sprint planning kick-off", "openai/gpt-4o-mini")
-        entry = json.loads(path.read_text().splitlines()[1])
-        assert "id" in entry
-        assert "timestamp" in entry
-
-
-# ---------------------------------------------------------------------------
 # append_rename
 # ---------------------------------------------------------------------------
 
@@ -359,27 +334,26 @@ class TestAppendRename:
 # ---------------------------------------------------------------------------
 
 class TestDisplayTitle:
-    def _make_data(self, *, slug="my-session", auto_title=None, custom_title=None):
+    def _make_data(self, *, slug="my-session", custom_title=None):
         return {
             "meta": {"slug": slug, "id": "abc-123"},
-            "autoTitle": auto_title,
             "customTitle": custom_title,
         }
 
-    def test_custom_over_auto(self):
-        data = self._make_data(auto_title="AI Title", custom_title="Custom Title")
+    def test_custom_over_slug(self):
+        data = self._make_data(slug="my-session", custom_title="Custom Title")
         assert display_title(data) == "Custom Title"
-
-    def test_auto_over_slug(self):
-        data = self._make_data(slug="my-session", auto_title="AI Title")
-        assert display_title(data) == "AI Title"
 
     def test_fallback_to_slug(self):
         data = self._make_data(slug="my-session")
         assert display_title(data) == "my-session"
 
+    def test_fallback_to_name_when_no_slug(self):
+        data = {"meta": {"slug": "", "name": "standup", "id": "abc-123"}, "customTitle": None}
+        assert display_title(data) == "standup"
+
     def test_fallback_to_id_when_no_slug(self):
-        data = {"meta": {"id": "abc-123"}, "autoTitle": None, "customTitle": None}
+        data = {"meta": {"id": "abc-123"}, "customTitle": None}
         assert display_title(data) == "abc-123"
 
 
@@ -388,24 +362,11 @@ class TestDisplayTitle:
 # ---------------------------------------------------------------------------
 
 class TestReadSessionTitleFields:
-    def test_auto_title_from_title_update(self, tmp_sessions_dir):
-        path = create_session("test")
-        append_title_update(path, "Sprint review session", "anthropic/claude")
-        data = read_session(path)
-        assert data["autoTitle"] == "Sprint review session"
-
     def test_custom_title_from_rename(self, tmp_sessions_dir):
         path = create_session("test")
         append_rename(path, "My Custom Name")
         data = read_session(path)
         assert data["customTitle"] == "My Custom Name"
-
-    def test_last_write_wins_for_auto_title(self, tmp_sessions_dir):
-        path = create_session("test")
-        append_title_update(path, "First title", "model-a")
-        append_title_update(path, "Second title", "model-b")
-        data = read_session(path)
-        assert data["autoTitle"] == "Second title"
 
     def test_last_write_wins_for_rename(self, tmp_sessions_dir):
         path = create_session("test")
