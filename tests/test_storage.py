@@ -16,6 +16,8 @@ from openmic.storage import (
     list_transcripts,
     save_notes,
     format_transcript_title,
+    is_placeholder_name,
+    _sanitize_name,
 )
 
 
@@ -248,3 +250,27 @@ class TestDataDirLocation:
         assert (nested / "transcripts").is_dir()
         assert (nested / "notes").is_dir()
         assert (nested / "recordings").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Argument-hint placeholders
+# ---------------------------------------------------------------------------
+
+class TestPlaceholderNames:
+    """A hint typed in literally ("/start [name]") must not become a session name."""
+
+    @pytest.mark.parametrize("value", ["[name]", "<title>", "  [name]  ", "<question>"])
+    def test_placeholders_detected(self, value):
+        assert is_placeholder_name(value)
+
+    @pytest.mark.parametrize("value", ["standup", "", "name", "[unclosed", "budget [q3]"])
+    def test_real_names_not_flagged(self, value):
+        assert not is_placeholder_name(value)
+
+    def test_sanitize_rejects_placeholder(self):
+        """Without the guard this returned 'name' and created a bogus session."""
+        assert _sanitize_name("[name]") == ""
+        assert _sanitize_name("<title>") == ""
+
+    def test_sanitize_keeps_real_names(self):
+        assert _sanitize_name("team standup") == "team_standup"

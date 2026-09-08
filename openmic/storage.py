@@ -6,8 +6,28 @@ from datetime import datetime
 from pathlib import Path
 
 
+_PLACEHOLDER_RE = re.compile(r'^[\[<].*[\]>]$')
+
+
+def is_placeholder_name(name: str | None) -> bool:
+    """True if `name` is wholly an argument-hint placeholder like '[name]' or '<title>'.
+
+    Completion hints are display-only, but a user can still type or paste one.
+    Treating such a value as "no name given" stops it becoming a real session
+    called 'name' once the brackets are stripped.
+    """
+    return bool(name) and bool(_PLACEHOLDER_RE.match(name.strip()))
+
+
 def _sanitize_name(name: str) -> str:
-    """Strip unsafe characters from session names to prevent path traversal."""
+    """Strip unsafe characters from session names to prevent path traversal.
+
+    Returns "" for a bare argument-hint placeholder, so callers fall back to
+    their unnamed-session behaviour instead of creating a session named after
+    the hint.
+    """
+    if is_placeholder_name(name):
+        return ""
     return re.sub(r'[^a-zA-Z0-9_\-]', '', name.strip().replace(" ", "_"))
 
 
