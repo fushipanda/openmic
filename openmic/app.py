@@ -2220,28 +2220,67 @@ async def repl_loop(ctx: ReplContext) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-_KNOWN_SUBCOMMANDS = {"record", "query", "notes", "list", "model", "update", "setup", "resume"}
+# Subcommand names, used to tell "openmic notes" from a bare one-shot query.
+_KNOWN_SUBCOMMANDS = {
+    "record", "resume", "query", "notes", "list", "model", "update", "setup",
+}
 
-_HELP_TEXT = """\
-Usage: openmic [command] [args]
+_EPILOG = """\
+examples:
+  openmic                          Interactive REPL
+  openmic "what did we decide"     Run a one-shot query and exit
+  openmic record -n "team standup" Record into a named session
+  openmic model anthropic claude-sonnet-5
 
-Commands:
-  openmic                        Interactive REPL
-  openmic resume                 Pick a session and enter REPL
-  openmic record [name]          Record a meeting, then enter REPL
-  openmic "query text"           Run a one-shot query and exit
-  openmic query "query text"     Same (explicit form)
-  openmic notes                  Show or generate notes for latest transcript
-  openmic list                   List saved transcripts
-  openmic model                  Interactive model picker
-  openmic model <provider> <id>  Set model directly (e.g. anthropic claude-sonnet-5)
-  openmic update                 Self-update
-  openmic setup                  Re-run setup wizard
-  openmic --version              Show version
-
-Transcription is handled locally via whisper.cpp — no API key required.
+Transcription is handled locally via faster-whisper — no API key required.
 Set WHISPER_MODEL in .env to change the model (default: large-v3-turbo).
 """
+
+
+def _build_parser() -> "argparse.ArgumentParser":
+    """Build the CLI parser.
+
+    Two behaviours cannot be expressed here and are handled by a pre-check in
+    main(): the config-free fast path (--version/--help/update/setup) and the
+    bare one-shot query ('openmic what did we decide').
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="openmic",
+        description="Privacy-first CLI for capturing and structuring spoken thought.",
+        epilog=_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    from openmic.version import get_version
+    parser.add_argument(
+        "-V", "--version", action="version", version=f"openmic {get_version()}"
+    )
+
+    sub = parser.add_subparsers(dest="command", metavar="[command]")
+
+    p_record = sub.add_parser("record", help="Record a meeting, then enter the REPL")
+    p_record.add_argument(
+        "-n", "--name", default=None,
+        help="Session name; spaces are preserved (e.g. -n \"team standup\")",
+    )
+
+    sub.add_parser("resume", help="Pick a session and enter the REPL")
+
+    p_query = sub.add_parser("query", help="Run a one-shot query and exit")
+    p_query.add_argument("text", nargs="*", help="The question to ask")
+
+    sub.add_parser("notes", help="Show or generate notes for the latest transcript")
+    sub.add_parser("list", help="List saved transcripts")
+
+    p_model = sub.add_parser("model", help="Show, pick, or set the LLM provider and model")
+    p_model.add_argument("provider", nargs="?", help="Provider, e.g. anthropic")
+    p_model.add_argument("model_id", nargs="?", help="Model ID, e.g. claude-sonnet-5")
+
+    sub.add_parser("update", help="Self-update")
+    sub.add_parser("setup", help="Re-run the setup wizard")
+
+    return parser
 
 
 def main() -> None:
@@ -2250,22 +2289,14 @@ def main() -> None:
 
     argv = sys.argv[1:]
 
-    # ── Fast-path: no config needed ─────────────────────────────────────────
     if not argv:
         _run_interactive()
         return
 
-    first, rest = argv[0], argv[1:]
+    first = argv[0]
 
-    if first in ("--version", "-V"):
-        from openmic.version import get_version
-        print(f"openmic {get_version()}")
-        return
-
-    if first in ("--help", "-h"):
-        print(_HELP_TEXT)
-        return
-
+    # ── Fast path: these must resolve before _bootstrap() runs, so they keep
+    # working when no config exists yet. ────────────────────────────────────
     if first == "update":
         from openmic.version import run_update
         run_update()
@@ -2276,43 +2307,33 @@ def main() -> None:
         run_setup()
         return
 
-    # ── Bare string = one-shot query ─────────────────────────────────────────
+    # ── A leading word that is not a subcommand is a one-shot query. This has
+    # to precede parse_args(), which would reject it. ───────────────────────
     if not first.startswith("-") and first not in _KNOWN_SUBCOMMANDS:
         _run_oneshot_query(" ".join(argv))
         return
 
-    # ── Subcommands ──────────────────────────────────────────────────────────
-    if first == "resume":
+    args = _build_parser().parse_args(argv)
+
+    if args.command == "record":
+        _run_interactive(record=True, session_name=args.name)
+    elif args.command == "resume":
         _run_interactive(resume=True)
-        return
-
-    if first in ("record", "--record", "-r"):
-        session_name = "_".join(rest) if rest else None
-        _run_interactive(record=True, session_name=session_name)
-        return
-
-    if first in ("query", "--query", "-q"):
-        query_text = " ".join(rest)
+    elif args.command == "query":
+        query_text = " ".join(args.text)
         if query_text:
             _run_oneshot_query(query_text)
         else:
             _run_interactive()
-        return
-
-    if first == "notes":
+    elif args.command == "notes":
         _run_oneshot_notes()
-        return
-
-    if first == "list":
+    elif args.command == "list":
         _run_list_transcripts()
-        return
-
-    if first == "model":
-        _run_set_model(rest)
-        return
-
-    console.print(f"[dim]Unknown command: {first}[/]\n")
-    print(_HELP_TEXT)
+    elif args.command == "model":
+        model_args = [a for a in (args.provider, args.model_id) if a]
+        _run_set_model(model_args)
+    else:
+        _run_interactive()
 
 
 # ---------------------------------------------------------------------------

@@ -488,28 +488,42 @@ class TestMentionResolution:
 class TestMainRouting:
 
     def test_version_flag(self, capsys):
+        """argparse's version action prints and exits 0."""
         with patch("sys.argv", ["openmic", "--version"]), \
              patch("openmic.version.get_version", return_value="1.2.3"):
             from openmic.app import main
-            main()
-        out = capsys.readouterr().out
-        assert "1.2.3" in out
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
+        assert "1.2.3" in capsys.readouterr().out
 
     def test_version_flag_short(self, capsys):
         with patch("sys.argv", ["openmic", "-V"]), \
              patch("openmic.version.get_version", return_value="2.0.0"):
             from openmic.app import main
-            main()
-        out = capsys.readouterr().out
-        assert "2.0.0" in out
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
+        assert "2.0.0" in capsys.readouterr().out
 
     def test_help_flag(self, capsys):
         with patch("sys.argv", ["openmic", "--help"]):
             from openmic.app import main
-            main()
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 0
         out = capsys.readouterr().out
         assert "record" in out
         assert "query" in out
+
+    def test_help_lists_every_subcommand(self, capsys):
+        with patch("sys.argv", ["openmic", "--help"]):
+            from openmic.app import main
+            with pytest.raises(SystemExit):
+                main()
+        out = capsys.readouterr().out
+        for name in ("record", "resume", "query", "notes", "list", "model", "update", "setup"):
+            assert name in out, f"{name} missing from --help"
 
     def test_bare_string_routes_to_oneshot_query(self):
         with patch("sys.argv", ["openmic", "what was discussed"]), \
@@ -532,12 +546,21 @@ class TestMainRouting:
             main()
         mock_q.assert_called_once_with("test question")
 
-    def test_query_flag(self):
-        with patch("sys.argv", ["openmic", "--query", "test"]), \
-             patch("openmic.app._run_oneshot_query") as mock_q:
+    @pytest.mark.parametrize("flag", ["--query", "-q", "--record", "-r"])
+    def test_dash_aliases_are_rejected(self, flag):
+        """Dash forms are dropped — subcommands are the canonical spelling."""
+        with patch("sys.argv", ["openmic", flag, "test"]):
+            from openmic.app import main
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+
+    def test_query_subcommand_with_no_text_opens_repl(self):
+        with patch("sys.argv", ["openmic", "query"]), \
+             patch("openmic.app._run_interactive") as mock_i:
             from openmic.app import main
             main()
-        mock_q.assert_called_once_with("test")
+        mock_i.assert_called_once_with()
 
     def test_notes_subcommand(self):
         with patch("sys.argv", ["openmic", "notes"]), \
@@ -574,12 +597,63 @@ class TestMainRouting:
             main()
         mock_i.assert_called_once_with(record=True, session_name=None)
 
-    def test_record_with_session_name(self):
-        with patch("sys.argv", ["openmic", "record", "standup"]), \
+    @pytest.mark.parametrize("flag", ["-n", "--name"])
+    def test_record_with_session_name(self, flag):
+        with patch("sys.argv", ["openmic", "record", flag, "standup"]), \
              patch("openmic.app._run_interactive") as mock_i:
             from openmic.app import main
             main()
         mock_i.assert_called_once_with(record=True, session_name="standup")
+
+    def test_record_name_preserves_spaces(self):
+        """-n replaces the old underscore-joining of positional args."""
+        with patch("sys.argv", ["openmic", "record", "-n", "team standup"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with(record=True, session_name="team standup")
+
+    def test_resume_subcommand(self):
+        with patch("sys.argv", ["openmic", "resume"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with(resume=True)
+
+    def test_no_args_opens_repl(self):
+        with patch("sys.argv", ["openmic"]), \
+             patch("openmic.app._run_interactive") as mock_i:
+            from openmic.app import main
+            main()
+        mock_i.assert_called_once_with()
+
+    def test_update_resolves_before_bootstrap(self):
+        """update/setup must not require config to exist."""
+        with patch("sys.argv", ["openmic", "update"]), \
+             patch("openmic.version.run_update") as mock_u, \
+             patch("openmic.app._bootstrap", side_effect=AssertionError("bootstrap ran")):
+            from openmic.app import main
+            main()
+        mock_u.assert_called_once()
+
+    def test_setup_resolves_before_bootstrap(self):
+        with patch("sys.argv", ["openmic", "setup"]), \
+             patch("openmic.setup.run_setup") as mock_s, \
+             patch("openmic.app._bootstrap", side_effect=AssertionError("bootstrap ran")):
+            from openmic.app import main
+            main()
+        mock_s.assert_called_once()
+
+    def test_bare_query_beats_parse_args(self):
+        """A question starting with a non-subcommand word must not hit argparse."""
+        with patch("sys.argv", ["openmic", "list", "of", "attendees"]), \
+             patch("openmic.app._run_list_transcripts") as mock_l:
+            from openmic.app import main
+            with pytest.raises(SystemExit):
+                main()
+        # "list" IS a subcommand, so this is a parse error, not a query —
+        # documenting the one ambiguity the pre-check deliberately keeps.
+        mock_l.assert_not_called()
 
     def test_set_model_direct_valid(self, monkeypatch, tmp_path):
         config_file = tmp_path / "settings.json"
